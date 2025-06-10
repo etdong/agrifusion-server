@@ -11,17 +11,9 @@ const CLIENT_URL = process.env.CLIENT_URL || 'http://localhost:5173';
 
 const app = express();
 
-client.connect()
-    .then(() => {
-        console.log('Connected to MongoDB');
-    })
-    .catch((err: any) => {
-        console.error('Error connecting to MongoDB:', err);
-    });
-
 app.use(cors({
     origin: CLIENT_URL,
-    credentials: true,            //access-control-allow-credentials:true
+    credentials: true,
 }));
 
 app.set('trust proxy', 1)
@@ -108,6 +100,16 @@ serv.listen(3000, () => {
 // key is the socket id, value is the player object
 let player_list: { [key: string]: any } = {};
 
+const GRID_SIZE = 72;
+
+const MAP_SIZE = 50
+
+const GameGrid: { [key: number]: { [key: number]: any | null } } = Array.from({ length: MAP_SIZE }, () =>
+    Array.from({ length: MAP_SIZE }, () => null))
+
+const ClaimGrid: { [key: number]: { [key: number]: any | null } } = Array.from({ length: MAP_SIZE }, () =>
+    Array.from({ length: MAP_SIZE }, () => null))
+
 io.sockets.on('connection', (socket: any) => {
     // create a new player object and add it to the player list on connection
     player_list[socket.id] = socket;
@@ -119,5 +121,52 @@ io.sockets.on('connection', (socket: any) => {
     socket.on('disconnect', () => {
         console.log('socket disconnection %s', socket.id)
         delete player_list[socket.id]
+    })
+
+    socket.on('GET player/farm', (data, callback) => {
+        console.log('RECV: GET player/farm', data);
+        const playerId = data.id;
+        client.connect().then(() => {
+            const db = client.db('agrifusion');
+            const collection = db.collection('farms');
+            collection.findOne({ playerId: playerId }).then((result) => {
+                if (result) {
+                    console.log('GET player/farm', playerId, result.farm);
+                    callback({ status: 'ok', data: result.farm });
+                } else {
+                    const farm = Array.from({ length: 3 }, () => Array.from({ length: 3 }, () => null))
+                    collection.insertOne({ playerId: playerId, farm: farm }).then(() => {
+                        console.log('GET player/farm', playerId, 'CREATED');
+                        callback({ status: 'ok', data: farm });
+                    });
+                }
+            }).catch((err) => {
+                console.error('Error fetching farm:', err);
+                callback({ status: 'err', data: err });
+            });
+        })
+    })
+
+    socket.on('POST player/farm', async (data: any, callback: any) => {
+        console.log('RECV: POST player/farm', data);
+        const playerId = data.id;
+        const playerFarm = data.farm;
+        client.connect().then(() => {
+            const db = client.db('agrifusion');
+            const collection = db.collection('farms');
+            collection.updateOne(
+                { playerId: playerId },
+                {$set: {
+                        farm: playerFarm,
+                    },
+                }, { upsert: true }
+            ).catch((err) => {
+                console.error('Error updating farm:', err);
+                callback({ status: 'err', data: err });
+            }).then(() => {
+                console.log('POST player/farm', playerId, playerFarm);
+                callback({ status: 'ok', data: null });
+            })
+        })
     })
 });
