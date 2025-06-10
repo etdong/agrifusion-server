@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "main": "app.js",
   "scripts": {
-    "build": "tsc",
+    "build": "tsc --watch",
     "start": "node --watch --env-file=.env --trace-warnings ./dist/app.js"
   },
   "keywords": [],

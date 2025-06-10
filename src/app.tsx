@@ -4,11 +4,20 @@ import http from 'http'
 import { Server } from 'socket.io'
 import passport from 'passport';
 import session from 'express-session';
+import client from './db'
 
 const SERVER_URL = process.env.SERVER_URL || 'http://localhost:3000';
 const CLIENT_URL = process.env.CLIENT_URL || 'http://localhost:5173';
 
 const app = express();
+
+client.connect()
+    .then(() => {
+        console.log('Connected to MongoDB');
+    })
+    .catch((err: any) => {
+        console.error('Error connecting to MongoDB:', err);
+    });
 
 app.use(cors({
     origin: CLIENT_URL,
@@ -67,17 +76,17 @@ function isAuthenticated(req: any, res: any, next: any) {
 }
 
 // get user login information
-app.get(
-    "/account",
-    isAuthenticated,
-    (req, res) => {
-        const user = {
-            ...req.user,
-            loggedIn: true
-        }
-        res.json(user);
-    }
-)
+// app.get(
+//     "/account",
+//     isAuthenticated,
+//     (req, res) => {
+//         const user = {
+//             ...req.user,
+//             loggedIn: true
+//         }
+//         res.json(user);
+//     }
+// )
 
 const serv = http.createServer(app)
 
@@ -93,4 +102,22 @@ const io = new Server(serv, {
 
 serv.listen(3000, () => {
   console.log(`server running at ${process.env.SERVER_URL}`);
+});
+
+// player list for tracking sockets
+// key is the socket id, value is the player object
+let player_list: { [key: string]: any } = {};
+
+io.sockets.on('connection', (socket: any) => {
+    // create a new player object and add it to the player list on connection
+    player_list[socket.id] = socket;
+
+    console.log('\nplayer connection %s', socket.id)
+    console.log('players: %s', player_list)
+
+    // remove player from player list on disconnection
+    socket.on('disconnect', () => {
+        console.log('socket disconnection %s', socket.id)
+        delete player_list[socket.id]
+    })
 });
