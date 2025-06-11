@@ -13,5 +13,4 @@ const client = new MongoClient(uri, {
     }
 });
 
-// client singleton
 export default client;

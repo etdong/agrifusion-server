@@ -111,19 +111,27 @@ const ClaimGrid: { [key: number]: { [key: number]: any | null } } = Array.from({
     Array.from({ length: MAP_SIZE }, () => null))
 
 io.sockets.on('connection', (socket: any) => {
-    // create a new player object and add it to the player list on connection
-    player_list[socket.id] = socket;
 
-    console.log('\nplayer connection %s', socket.id)
-    console.log('players: %s', player_list)
+    socket.pos = { x: 0, y: 0 };
+    socket.playerId = -1
+    player_list[socket.id] = socket;
 
     // remove player from player list on disconnection
     socket.on('disconnect', () => {
         console.log('socket disconnection %s', socket.id)
+
         delete player_list[socket.id]
     })
 
-    socket.on('GET player/farm', (data, callback) => {
+    socket.on('GET player/data', (data: { playerId: string }, callback: (arg0: { status: string; data: any; }) => void) => {
+        console.log('RECV: GET player/data', data);
+        const playerId = data.playerId
+        player_list[socket.id].playerId = playerId;
+        console.log('\nplayer connection %s', socket.id);
+        console.log('players: %s', player_list)
+    });
+
+    socket.on('GET player/farm', (data: { id: any; }, callback: (arg0: { status: string; data: any; }) => void) => {
         console.log('RECV: GET player/farm', data);
         const playerId = data.id;
         client.connect().then(() => {
@@ -147,7 +155,7 @@ io.sockets.on('connection', (socket: any) => {
         })
     })
 
-    socket.on('POST player/farm', async (data: any, callback: any) => {
+    socket.on('POST player/farm', (data: any, callback: any) => {
         console.log('RECV: POST player/farm', data);
         const playerId = data.id;
         const playerFarm = data.farm;
@@ -168,5 +176,25 @@ io.sockets.on('connection', (socket: any) => {
                 callback({ status: 'ok', data: null });
             })
         })
+    });
+
+    socket.on('POST player/pos', (data: any, callback: any) => {
+        const playerPos = data.pos;
+        player_list[socket.id].pos = playerPos;
     })
-});
+})
+
+setInterval(() => {
+    let data: { [key: string]: any } = {};
+    for (let i in player_list) {
+        let socket = player_list[i]
+        data[socket.id] = {
+            playerId: socket.playerId,
+            pos: socket.pos,
+        }
+    }
+    for (let i in player_list) {
+        let socket = player_list[i]
+        socket.emit('UPDATE player/pos', data)
+    }
+}, 1000/10)
