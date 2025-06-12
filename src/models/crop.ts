@@ -1,4 +1,4 @@
-const CropType = {
+export const CropType = {
     CARROT: 'carrot',
     POTATO: 'potato',
     TOMATO: 'tomato',
@@ -11,7 +11,7 @@ const CropType = {
     GARLIC: 'garlic'
 } as const;
 
-const CropSize = {
+export const CropSize = {
     SMALL: 20,
     MEDIUM: 25,
     LARGE: 30,
@@ -19,6 +19,8 @@ const CropSize = {
 } as const;
 
 export type Crop = {
+    id: number;
+    pos: {x: number, y: number},
     type: (typeof CropType)[keyof typeof CropType];
-    size: (typeof CropSize)[keyof typeof CropSize];
+    size: number;
 };
