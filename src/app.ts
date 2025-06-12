@@ -6,12 +6,15 @@ import passport from 'passport';
 import session from 'express-session';
 import client from './db'
 import { Crop, CropSize } from './models/crop';
-import { Collection } from 'mongodb';
 
 const SERVER_URL = process.env.SERVER_URL || 'http://localhost:3000';
 const CLIENT_URL = process.env.CLIENT_URL || 'http://localhost:5173';
 
 const app = express();
+
+app.get('/', (_, res) => {
+  res.send('<h1>Agrifusion Backend</h1>');
+});
 
 app.use(cors({
     origin: CLIENT_URL,
@@ -29,7 +32,7 @@ app.use(session({
     cookie: {
         secure: true,
         sameSite: 'none',
-        maxAge: 1000 * 60 * 60 * 24
+        maxAge: 1000 * 60 * 60 * 24, // 1 day
     },
     proxy: true,
     store: new MemoryStore({
@@ -37,13 +40,10 @@ app.use(session({
     })
 }))
 
+require('./auth');
 app.use(passport.initialize());
 app.use(passport.session());
 app.use(passport.authenticate('session'))
-
-app.get('/', (req, res) => {
-  res.send('<h1>Agrifusion Backend</h1>');
-});
 
 // google auth page
 app.get(
@@ -70,17 +70,17 @@ function isAuthenticated(req: any, res: any, next: any) {
 }
 
 // get user login information
-// app.get(
-//     "/account",
-//     isAuthenticated,
-//     (req, res) => {
-//         const user = {
-//             ...req.user,
-//             loggedIn: true
-//         }
-//         res.json(user);
-//     }
-// )
+app.get(
+    "/account",
+    isAuthenticated,
+    (req, res) => {
+        const user = {
+            ...req.user,
+            loggedIn: true
+        }
+        res.json(user);
+    }
+)
 
 const serv = http.createServer(app)
 
@@ -113,11 +113,12 @@ const ClaimGrid: { [key: number]: { [key: number]: boolean } } = Array.from({ le
 
 io.sockets.on('connection', (socket: any) => {
 
+    socket.loggedIn = false;
     socket.pos = { x: -1, y: -1 };
     socket.playerId = '-1'
-    socket.coins = 0,
-    socket.farmSize = 3; // default farm size
-    socket.farmOrigin = { x: -1, y: -1 }; // default farm origin
+    socket.coins = -1,
+    socket.farmSize = -1;
+    socket.farmOrigin = { x: -1, y: -1 };
     socket.farmPlaced = false;
     playerList[socket.id] = socket;
 
@@ -125,6 +126,9 @@ io.sockets.on('connection', (socket: any) => {
     socket.on('disconnect', () => {
         console.log('socket disconnection %s', socket.id)
         const player = playerList[socket.id];
+        if (!player.loggedIn) {
+            return;
+        }
         client.connect().then(() => {
             const db = client.db('agrifusion');
             const collection = db.collection('farms');
@@ -178,45 +182,43 @@ io.sockets.on('connection', (socket: any) => {
         io.emit('UPDATE player/disconnect', { playerId: socket.playerId });
     })
 
-    socket.on('GET player/data', (data: { playerId: string }, callback: (arg0: { status: string; data: any; }) => void) => {
-        console.log('RECV: GET player/data', data);
+    socket.on('login', (socketId: string, playerName: string, playerId: string) => {
+        console.log('RECV: login', socketId, playerName, playerId);
+        if (playerList[socketId]) {
+            const player = playerList[socketId];
+            player.loggedIn = true;
+            player.playerId = playerId;
+            player.name = playerName;
+            console.log('Player logged in:', playerName, 'ID:', playerId);
+            player.emit()
+        } else {
+            console.error('Socket not found for ID:', socketId);
+        }
+    })
+
+    socket.on('GET player/data', (callback: (arg0: { status: string; data: any; }) => void) => {
+        const player = playerList[socket.id];
         console.log('\nplayer connection %s', socket.id);
         console.log('players: %s', playerList)
-        const player = playerList[socket.id];
-        player.playerId = data.playerId;
+        console.log('RECV: GET player/data');
+        if (!player.loggedIn) {
+            callback({ status: 'err', data: 'Player not logged in' });
+            return;
+        }
         client.connect().then(() => {
             const db = client.db('agrifusion');
             const collection = db.collection('farms');
-            const playerId = data.playerId;
-            collection.findOne({ playerId: playerId }).then((result) => {
+            collection.findOne({ playerId: player.playerId }).then((result) => {
                 if (result) {
-                    console.log('GET player/data', playerId, result);
+                    console.log('GET player/data', player.playerId, result);
                     player.coins = result.coins; // set coins from database
                     player.emit('UPDATE player/coins', { coins: player.coins });
                     callback({ status: 'ok', data: 'Player loaded' });
                     updateGameGrid();
-                } else {
-                    const farm = Array.from({ length: 3 }, () => Array.from({ length: 3 }, () => null))
-                    collection.insertOne({ 
-                        playerId: playerId, 
-                        farm: farm,
-                        size: 3,
-                        coins: 0,
-                    }).catch((err) => {
-                        console.error('Error creating player:', err);
-                        callback({ status: 'err', data: err });
-                        updateGameGrid();
-                    }).then(() => {
-                        console.log('GET player/data', data.playerId, 'CREATED');
-                        callback({ status: 'ok', data: 'Player created' });
-                        updateGameGrid();
-                    });
-                    
                 }
             }).catch((err) => {
                 console.error('Error fetching player data:', err);
                 callback({ status: 'err', data: err });
-                updateGameGrid();
             });
         });
     })
