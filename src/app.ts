@@ -6,6 +6,7 @@ import passport from 'passport';
 import session from 'express-session';
 import client from './db'
 import { Crop, CropSize } from './models/crop';
+import { Collection } from 'mongodb';
 
 const SERVER_URL = process.env.SERVER_URL || 'http://localhost:3000';
 const CLIENT_URL = process.env.CLIENT_URL || 'http://localhost:5173';
@@ -97,13 +98,12 @@ serv.listen(3000, () => {
   console.log(`server running at ${process.env.SERVER_URL}`);
 });
 
+const GRID_SIZE = 72;
+const MAP_SIZE = 50
+
 // player list for tracking sockets
 // key is the socket id, value is the socket object
 let playerList: { [key: string]: any } = {};
-
-const GRID_SIZE = 72;
-
-const MAP_SIZE = 50
 
 const GameGrid: { [key: number]: { [key: number]: Crop | null } } = Array.from({ length: MAP_SIZE }, () =>
     Array.from({ length: MAP_SIZE }, () => null))
@@ -115,6 +115,7 @@ io.sockets.on('connection', (socket: any) => {
 
     socket.pos = { x: -1, y: -1 };
     socket.playerId = '-1'
+    socket.coins = 0,
     socket.farmSize = 3; // default farm size
     socket.farmOrigin = { x: -1, y: -1 }; // default farm origin
     socket.farmPlaced = false;
@@ -124,23 +125,25 @@ io.sockets.on('connection', (socket: any) => {
     socket.on('disconnect', () => {
         console.log('socket disconnection %s', socket.id)
         const player = playerList[socket.id];
-        if (player.farmPlaced) {
+        client.connect().then(() => {
+            const db = client.db('agrifusion');
+            const collection = db.collection('farms');
             const playerId = player.playerId;
-            const playerFarm: { [key: number]: { [key: number]: Crop | null } } = Array.from({ length: player.farmSize }, () => Array.from({ length: player.farmSize }, () => null))
-            for (let x = 0; x < player.farmSize; x++) {
-                for (let y = 0; y < player.farmSize; y++) {
-                    const gridX = player.farmOrigin.x + x;
-                    const gridY = player.farmOrigin.y + y;
-                    if (GameGrid[gridX][gridY]) playerFarm[x][y] = GameGrid[gridX][gridY];
+            if (player.farmPlaced) {
+                const playerFarm: { [key: number]: { [key: number]: Crop | null } } = Array.from({ length: player.farmSize }, () => Array.from({ length: player.farmSize }, () => null))
+                for (let x = 0; x < player.farmSize; x++) {
+                    for (let y = 0; y < player.farmSize; y++) {
+                        const gridX = player.farmOrigin.x + x;
+                        const gridY = player.farmOrigin.y + y;
+                        if (GameGrid[gridX][gridY]) playerFarm[x][y] = GameGrid[gridX][gridY];
+                    }
                 }
-            }
-            client.connect().then(() => {
-                const db = client.db('agrifusion');
-                const collection = db.collection('farms');
                 collection.updateOne(
                     { playerId: playerId },
                     {$set: {
                             farm: playerFarm,
+                            size: player.farmSize, // save farm size to database
+                            coins: player.coins,
                         },
                     }, { upsert: true }
                 ).catch((err) => {
@@ -154,18 +157,69 @@ io.sockets.on('connection', (socket: any) => {
                             GameGrid[gridX][gridY] = null;
                         }
                     }
+                    updateGameGrid();
                 })
-            })
-        }
-        delete playerList[socket.id]
+            } else {
+                collection.updateOne(
+                    { playerId: playerId },
+                    {$set: {
+                            coins: player.coins,
+                        },
+                    }, { upsert: true }
+                ).catch((err) => {
+                    console.error('Error updating farm:', err);
+                }).then(() => {
+                    console.log('POST player/coins', playerId, player.coins);
+                    updateGameGrid();
+                })
+            }
+        })
+        delete playerList[socket.id];
+        io.emit('UPDATE player/disconnect', { playerId: socket.playerId });
     })
 
     socket.on('GET player/data', (data: { playerId: string }, callback: (arg0: { status: string; data: any; }) => void) => {
         console.log('RECV: GET player/data', data);
-        playerList[socket.id].playerId = data.playerId;
         console.log('\nplayer connection %s', socket.id);
         console.log('players: %s', playerList)
-    });
+        const player = playerList[socket.id];
+        player.playerId = data.playerId;
+        client.connect().then(() => {
+            const db = client.db('agrifusion');
+            const collection = db.collection('farms');
+            const playerId = data.playerId;
+            collection.findOne({ playerId: playerId }).then((result) => {
+                if (result) {
+                    console.log('GET player/data', playerId, result);
+                    player.coins = result.coins; // set coins from database
+                    player.emit('UPDATE player/coins', { coins: player.coins });
+                    callback({ status: 'ok', data: 'Player loaded' });
+                    updateGameGrid();
+                } else {
+                    const farm = Array.from({ length: 3 }, () => Array.from({ length: 3 }, () => null))
+                    collection.insertOne({ 
+                        playerId: playerId, 
+                        farm: farm,
+                        size: 3,
+                        coins: 0,
+                    }).catch((err) => {
+                        console.error('Error creating player:', err);
+                        callback({ status: 'err', data: err });
+                        updateGameGrid();
+                    }).then(() => {
+                        console.log('GET player/data', data.playerId, 'CREATED');
+                        callback({ status: 'ok', data: 'Player created' });
+                        updateGameGrid();
+                    });
+                    
+                }
+            }).catch((err) => {
+                console.error('Error fetching player data:', err);
+                callback({ status: 'err', data: err });
+                updateGameGrid();
+            });
+        });
+    })
 
     socket.on('GET player/farm', (callback: (arg0: { status: string; data: any; }) => void) => {
         console.log('RECV: GET player/farm');
@@ -201,18 +255,12 @@ io.sockets.on('connection', (socket: any) => {
                     }
                     player.farmPlaced = true; // set farm placed to true
                     callback({ status: 'ok', data: result.farm });
-                } else {
-                    const farm = Array.from({ length: 3 }, () => Array.from({ length: 3 }, () => null))
-                    collection.insertOne({ playerId: playerId, farm: farm }).then(() => {
-                        console.log('GET player/farm', playerId, 'CREATED');
-                        callback({ status: 'ok', data: farm });
-                    player.farmOrigin = playerGridPos;
-                    player.farmPlaced = true; // set farm placed to true
-                    });
+                    updateGameGrid();
                 }
             }).catch((err) => {
                 console.error('Error fetching farm:', err);
                 callback({ status: 'err', data: err });
+                updateGameGrid();
             });
         })
     })
@@ -223,6 +271,7 @@ io.sockets.on('connection', (socket: any) => {
         if (!player.farmPlaced) {
             console.error('Player has not placed a farm yet');
             callback({ status: 'err', data: 'Farm not placed' });
+            return;
         }
         const playerId = player.playerId;
         const playerFarm: { 
@@ -244,11 +293,13 @@ io.sockets.on('connection', (socket: any) => {
                 {$set: {
                         farm: playerFarm,
                         size: player.farmSize, // save farm size to database
+                        coins: player.coins, // save coins to database
                     },
                 }, { upsert: true }
             ).catch((err) => {
                 console.error('Error updating farm:', err);
                 callback({ status: 'err', data: err });
+                updateGameGrid();
             }).then(() => {
                 console.log('POST player/farm', playerId, playerFarm);
                 for (let x = 0; x < player.farmSize; x++) {
@@ -261,7 +312,7 @@ io.sockets.on('connection', (socket: any) => {
                 player.farmPlaced = false; // reset farm placed to false
                 player.farmOrigin = { x: -1, y: -1 }; // reset farm origin
                 callback({ status: 'ok', data: null });
-                
+                updateGameGrid();
             })
         })
     });
@@ -276,6 +327,7 @@ io.sockets.on('connection', (socket: any) => {
         const newCrop = data.newCrop;
         GameGrid[newCrop.pos.x][newCrop.pos.y] = newCrop;
         callback({ status: 'ok', data: newCrop });
+        updateGameGrid();
     })
 
     socket.on('POST game/crop/move', (data: { oldPos, newPos }, callback: (arg0: { status: string; data: any; }) => void) => {
@@ -385,6 +437,8 @@ io.sockets.on('connection', (socket: any) => {
             console.error('Cannot move crop to occupied position or no crop at old position');
             callback({ status: 'err', data: 'Cannot move crop to occupied position or no crop at old position' });
         }
+
+        updateGameGrid();
     })
 })
 
@@ -400,7 +454,7 @@ setInterval(() => {
     io.emit('UPDATE player/pos', data)
 }, 1000/10)
 
-setInterval(() => {
+function updateGameGrid() {
     // Check for crops in the game grid and update their positions
     const cropInfo: { [key: string]: { crop: Crop }} = {};
     for (let x = 0; x < MAP_SIZE; x++) {
@@ -420,4 +474,4 @@ setInterval(() => {
     }
     // Send the crop information to the clients
     io.emit('UPDATE game/grid', { grid: cropInfo });
-}, 1000/4)
+}
