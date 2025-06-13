@@ -6,6 +6,7 @@ import passport from 'passport';
 import session from 'express-session';
 import client from './db'
 import { Crop, CropSize } from './models/crop';
+import { resolve } from 'path';
 
 const SERVER_URL = process.env.SERVER_URL || 'http://localhost:3000';
 const CLIENT_URL = process.env.CLIENT_URL || 'http://localhost:5173';
@@ -30,9 +31,12 @@ app.use(session({
     resave: false,
     saveUninitialized: false,
     cookie: {
-        secure: true,
-        sameSite: 'none',
-        maxAge: 1000 * 60 * 60 * 24, // 1 day
+        sameSite: 'lax', // lax is important, don't use 'strict' or 'none'
+        httpOnly: process.env.ENVIRONMENT !== 'development', // must be true in production
+        path: '/',
+        secure: process.env.ENVIRONMENT !== 'development', // must be true in production
+        maxAge: 60 * 60 * 24 * 7 * 52, // 1 year
+        domain: process.env.ENVIRONMENT === 'development' ? '' : `.localhost`, // the period before is important and intentional
     },
     proxy: true,
     store: new MemoryStore({
@@ -58,7 +62,7 @@ app.get(
     "/google/callback", 
     passport.authenticate('google', { 
         session: true,
-        successRedirect: CLIENT_URL,
+        successRedirect: CLIENT_URL + '/#/play',
         failureRedirect: CLIENT_URL
     })
 );
@@ -108,25 +112,29 @@ let playerList: { [key: string]: any } = {};
 const GameGrid: { [key: number]: { [key: number]: Crop | null } } = Array.from({ length: MAP_SIZE }, () =>
     Array.from({ length: MAP_SIZE }, () => null))
 
-const ClaimGrid: { [key: number]: { [key: number]: boolean } } = Array.from({ length: MAP_SIZE }, () =>
-    Array.from({ length: MAP_SIZE }, () => null))
+const ClaimGrid: { [key: number]: { [key: number]: string } } = Array.from({ length: MAP_SIZE }, () =>
+    Array.from({ length: MAP_SIZE }, () => '' ))
 
 io.sockets.on('connection', (socket: any) => {
-
+    console.log('socket connection %s', socket.id);
+    playerList[socket.id] = socket;
     socket.loggedIn = false;
     socket.pos = { x: -1, y: -1 };
     socket.playerId = '-1'
+    socket.name = 'Player'
     socket.coins = -1,
     socket.farmSize = -1;
     socket.farmOrigin = { x: -1, y: -1 };
     socket.farmPlaced = false;
-    playerList[socket.id] = socket;
+    console.log('players: %s', playerList)
 
     // remove player from player list on disconnection
     socket.on('disconnect', () => {
         console.log('socket disconnection %s', socket.id)
         const player = playerList[socket.id];
         if (!player.loggedIn) {
+            delete playerList[socket.id];
+            io.emit('UPDATE player/disconnect', { playerId: socket.playerId });
             return;
         }
         client.connect().then(() => {
@@ -159,6 +167,7 @@ io.sockets.on('connection', (socket: any) => {
                             const gridX = player.farmOrigin.x + x;
                             const gridY = player.farmOrigin.y + y;
                             GameGrid[gridX][gridY] = null;
+                            ClaimGrid[gridX][gridY] = ''; // mark claim grid as clear
                         }
                     }
                     updateGameGrid();
@@ -182,24 +191,30 @@ io.sockets.on('connection', (socket: any) => {
         io.emit('UPDATE player/disconnect', { playerId: socket.playerId });
     })
 
-    socket.on('login', (socketId: string, playerName: string, playerId: string) => {
-        console.log('RECV: login', socketId, playerName, playerId);
-        if (playerList[socketId]) {
-            const player = playerList[socketId];
+    socket.on('POST player/login', ( data: { playerName: string, playerId: string }, callback: (arg0: { status: string; data: any; }) => void) => {
+        console.log('RECV: login', data.playerName, data.playerId);
+        if (playerList[socket.id]) {
+            for (const player of Object.values(playerList)) {
+                if (player.playerId === data.playerId && player.loggedIn) {
+                    console.error('Player already logged in:', data.playerName, 'ID:', data.playerId);
+                    callback({ status: 'err', data: 'Player already logged in' });
+                    return;
+                }
+            }
+            const player = playerList[socket.id];
             player.loggedIn = true;
-            player.playerId = playerId;
-            player.name = playerName;
-            console.log('Player logged in:', playerName, 'ID:', playerId);
-            player.emit()
+            player.playerId = data.playerId;
+            player.name = data.playerName;
+            console.log('Player logged in:', data.playerName, 'ID:', data.playerId);
+            callback({ status: 'ok', data: 'Player login received' });
         } else {
-            console.error('Socket not found for ID:', socketId);
+            console.error('Socket not found for ID:', socket.id);
+            callback({ status: 'ok', data: 'Player login received' });
         }
     })
 
     socket.on('GET player/data', (callback: (arg0: { status: string; data: any; }) => void) => {
         const player = playerList[socket.id];
-        console.log('\nplayer connection %s', socket.id);
-        console.log('players: %s', playerList)
         console.log('RECV: GET player/data');
         if (!player.loggedIn) {
             callback({ status: 'err', data: 'Player not logged in' });
@@ -212,6 +227,8 @@ io.sockets.on('connection', (socket: any) => {
                 if (result) {
                     console.log('GET player/data', player.playerId, result);
                     player.coins = result.coins; // set coins from database
+                    player.farmSize = result.size; // set farm size from database
+                    player.name = result.name
                     player.emit('UPDATE player/coins', { coins: player.coins });
                     callback({ status: 'ok', data: 'Player loaded' });
                     updateGameGrid();
@@ -233,6 +250,11 @@ io.sockets.on('connection', (socket: any) => {
             callback({ status: 'err', data: 'Player position out of bounds' });
             return;
         }
+        if (player.farmPlaced) {
+            console.error('Player already has a farm placed:', playerId);
+            callback({ status: 'err', data: 'Farm already placed' });
+            return;
+        }
         client.connect().then(() => {
             const db = client.db('agrifusion');
             const collection = db.collection('farms');
@@ -243,12 +265,34 @@ io.sockets.on('connection', (socket: any) => {
                     player.farmOrigin = playerGridPos;
                     for (let x = 0; x < player.farmSize; x++) {
                         for (let y = 0; y < player.farmSize; y++) {
+                            const gridX = player.farmOrigin.x + x;
+                            const gridY = player.farmOrigin.y + y;
+                            // check for out of bounds
+                            if (gridX < 0 || gridX >= MAP_SIZE || gridY < 0 || gridY >= MAP_SIZE) {
+                                console.error('Farm position out of bounds:', { x: gridX, y: gridY });
+                                callback({ status: 'err', data: 'Farm position out of bounds' });
+                                return;
+                            }
+                            // check the claimgrid for intersections
+                            if (ClaimGrid[gridX][gridY] !== '') {
+                                console.error('Farm position already claimed:', { x: gridX, y: gridY, playerId: ClaimGrid[gridX][gridY] });
+                                callback({ status: 'err', data: 'Farm position already claimed' });
+                                return;
+                            }
+                        }
+                    }
+                    // if it gets here, it's clear to go
+                    for (let x = 0; x < player.farmSize; x++) {
+                        for (let y = 0; y < player.farmSize; y++) {
+                            const gridX = player.farmOrigin.x + x;
+                            const gridY = player.farmOrigin.y + y;
+                            ClaimGrid[gridX][gridY] = playerId; // mark claim grid as occupied
                             if (result.farm[x][y] === null) {
-                                GameGrid[playerGridPos.x + x][playerGridPos.y + y] = null;
+                                GameGrid[gridX][gridY] = null;
                             } else {
-                                GameGrid[playerGridPos.x + x][playerGridPos.y + y] = {
+                                GameGrid[gridX][gridY] = {
                                     id: result.farm[x][y].id,
-                                    pos: { x: playerGridPos.x + x, y: playerGridPos.y + y },
+                                    pos: { x: gridX, y: gridY },
                                     type: result.farm[x][y].type,
                                     size: result.farm[x][y].size
                                 }
@@ -304,10 +348,12 @@ io.sockets.on('connection', (socket: any) => {
                 updateGameGrid();
             }).then(() => {
                 console.log('POST player/farm', playerId, playerFarm);
+                console.log(player.farmOrigin);
                 for (let x = 0; x < player.farmSize; x++) {
                     for (let y = 0; y < player.farmSize; y++) {
                         const gridX = player.farmOrigin.x + x;
                         const gridY = player.farmOrigin.y + y;
+                        ClaimGrid[gridX][gridY] = ''; // mark claim grid as clear
                         GameGrid[gridX][gridY] = null;
                     }
                 }
@@ -337,10 +383,19 @@ io.sockets.on('connection', (socket: any) => {
         const oldPos = data.oldPos;
         const newPos = data.newPos;
 
+        if (oldPos.x === newPos.x && oldPos.y === newPos.y) {
+            callback({ status: 'ok', data: null });
+            return;
+        }
+
+        if (!GameGrid[oldPos.x][oldPos.y]) {
+            console.error('No crop at old position:', oldPos);
+            callback({ status: 'err', data: 'No crop at old position' });
+            return;
+        }
+
         // Check if the dropped crop is in a new grid position and if the new position is occupied
-        if (GameGrid[oldPos.x][oldPos.y]
-            && (oldPos.x !== newPos.x || oldPos.y !== newPos.y) 
-            && GameGrid[newPos.x][newPos.y] !== null) {
+        if (GameGrid[newPos.x][newPos.y] !== null) {
             
             const crop = GameGrid[oldPos.x][oldPos.y];
             const coll = GameGrid[newPos.x][newPos.y];
@@ -390,7 +445,7 @@ io.sockets.on('connection', (socket: any) => {
                 const newSize = crop.size + 5;
                 switch (true) {
                     case mergeGroup.length < 3:
-                        // Not enough crops to merge, do nothing
+                        callback({ status: 'err', data: 'Cannot move crop onto occupied position without merge' });
                         break;
                     case mergeGroup.length < 5:
                         // Only merge up to 3 crops if there are less than 5
@@ -422,22 +477,15 @@ io.sockets.on('connection', (socket: any) => {
                         break; 
                     }
                 }
+            } else {
+                callback({ status: 'err', data: 'Cannot move crop onto occupied position without merge' });
             }
-        }
-
-        // If the grid square is empty, move the clicked crop to the new position
-        if (GameGrid[newPos.x][newPos.y] === null && GameGrid[oldPos.x][oldPos.y]) {
-            if (oldPos.x == newPos.x && oldPos.y == newPos.y) {
-                callback({ status: 'ok', data: null });
-            }
+        } else {
             const tempCrop = GameGrid[oldPos.x][oldPos.y];
             tempCrop.pos = newPos; // Update the position of the crop
             GameGrid[newPos.x][newPos.y] = tempCrop; // Mark new position as occupied
             GameGrid[oldPos.x][oldPos.y] = null; // Set old position to unoccupied
             callback({ status: 'ok', data: `moved: (${oldPos.x}, ${oldPos.y}) to (${newPos.x}, ${newPos.y})` });
-        } else {
-            console.error('Cannot move crop to occupied position or no crop at old position');
-            callback({ status: 'err', data: 'Cannot move crop to occupied position or no crop at old position' });
         }
 
         updateGameGrid();
@@ -474,6 +522,16 @@ function updateGameGrid() {
             }
         }
     }
+
+    const claimInfo: { [key: string]: { origin: { x: number, y: number }, size: number, name: string }} = {}
+    for (const socket in playerList) {
+        const player = playerList[socket];
+        claimInfo[player.playerId] = {
+            origin: player.farmOrigin,
+            size: player.farmSize,
+            name: player.name,
+        }
+    }
     // Send the crop information to the clients
-    io.emit('UPDATE game/grid', { grid: cropInfo });
+    io.emit('UPDATE game/grid', { grid: cropInfo, claim: claimInfo });
 }
