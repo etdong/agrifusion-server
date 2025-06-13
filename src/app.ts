@@ -383,21 +383,30 @@ io.sockets.on('connection', (socket: any) => {
         const oldPos = data.oldPos;
         const newPos = data.newPos;
 
-        if (oldPos.x === newPos.x && oldPos.y === newPos.y) {
-            callback({ status: 'ok', data: null });
-            return;
-        }
-
         if (!GameGrid[oldPos.x][oldPos.y]) {
             console.error('No crop at old position:', oldPos);
             callback({ status: 'err', data: 'No crop at old position' });
             return;
         }
 
+        const crop = GameGrid[oldPos.x][oldPos.y];
+
+        if (oldPos.x === newPos.x && oldPos.y === newPos.y) {
+            if (crop.size === CropSize.XLARGE) {
+                socket.emit('UPDATE game/crop/harvest', { crop: crop });
+                GameGrid[oldPos.x][oldPos.y] = null; // Remove the crop from the grid
+                callback({ status: 'ok', data: 'Crop harvested' });
+            } else {
+                callback({ status: 'ok', data: null });
+            }
+            return;
+        }
+
+        
+
         // Check if the dropped crop is in a new grid position and if the new position is occupied
         if (GameGrid[newPos.x][newPos.y] !== null) {
             
-            const crop = GameGrid[oldPos.x][oldPos.y];
             const coll = GameGrid[newPos.x][newPos.y];
 
             // Is the colliding object a crop of the same type and size?
