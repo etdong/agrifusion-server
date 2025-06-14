@@ -52,35 +52,42 @@ export function initPassport(app: any) {
         });
     });
 
-    app.post('/api/signup', (req, res, next) => {
+    app.post('/api/signup', (req: any, res: any, next: any) => {
         var salt = crypto.randomBytes(16);
         crypto.pbkdf2(req.body.password, salt, 310000, 32, 'sha256', (err, hashedPassword) => {
             if (err) { return next(err); }
-            const collection = client.db('agrifusion').collection('farms');
+            const collection = client.db('agrifusion').collection('users');
             const farm = Array.from({ length: 3 }, () => Array.from({ length: 3 }, () => null))
-            collection.insertOne({ 
-                username: req.body.username,
-                hashed_password: hashedPassword,
-                salt: salt,
-                farm: farm,
-                size: 3,
-                coins: 0,
-            }).catch((err) => {
-                console.error('Error creating player:', err);
-                return next(err);
-            }).then(() => {
-                console.log('User created successfully:', req.body.username);
-                const user = {
-                    username: req.body.username
-                };
-                req.login(user, (err) => {
-                    if (err) { return next(err); }
-                    res.redirect(CLIENT_URL);
-                })
-            });
+            collection.findOne({ username: req.body.username }).then((user: any) => {
+                if (user) {
+                    console.log('Username taken!')
+                    res.redirect(CLIENT_URL + '/#/signup?error=username_taken');
+                } else {
+                    collection.insertOne({ 
+                        username: req.body.username,
+                        hashed_password: hashedPassword,
+                        salt: salt,
+                        farm: farm,
+                        size: 3,
+                        coins: 0,
+                    }).catch((err) => {
+                        console.error('Error creating player:', err);
+                        res.redirect(CLIENT_URL + '/#/signup?error=' + err);
+                    }).then(() => {
+                        console.log('User created successfully:', req.body.username);
+                        const user = {
+                            username: req.body.username
+                        };
+                        req.login(user, (err) => {
+                            if (err) { return next(err); }
+                            res.redirect(CLIENT_URL);
+                        })
+                    });
+                }
+            })
         });
     });
-    
+
     app.post('/api/login', (req: any, res: any, next: any) => {
         console.log('Login attempt:', req.body.username);
         passport.authenticate('local', {
@@ -89,11 +96,13 @@ export function initPassport(app: any) {
             failureRedirect: CLIENT_URL
         }, (err, user, info) => {
             if (err) {
-                return next(err);
+                console.log(err)
+                res.redirect(CLIENT_URL + '/?error=' + encodeURIComponent(err));
+                res.redirect(CLIENT_URL);
             }
             if (!user) {
                 console.log(info.message)
-                return res
+                res.redirect(CLIENT_URL + '/?error=' + encodeURIComponent(info.message));
             } else {
                 req.logIn(user, (err: any) => {
                     if (err) { return next(err); }
@@ -103,7 +112,7 @@ export function initPassport(app: any) {
         })(req, res, next)
     });
     
-    app.get('/api/user', isAuthenticated, (req, res) => {
+    app.get('/api/user', isAuthenticated, (req: any, res: any) => {
         res.send({ id: req.user.id, username: req.user.username, loggedIn: true });
     });
 }
@@ -112,7 +121,7 @@ export function isAuthenticated(req: any, res: any, next: any) {
     if (req.isAuthenticated()) next();
     else res.json({ 
         loggedIn: false,
-        message: null
+        message: "Player is not authenticated. Please log in."
     });
 }
 

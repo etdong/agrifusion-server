@@ -42,7 +42,7 @@ app.use(session({
         httpOnly: process.env.ENVIRONMENT !== 'development', // must be true in production
         path: '/',
         secure: process.env.ENVIRONMENT !== 'development', // must be true in production
-        maxAge: 60 * 60 * 24 * 7 * 52, // 1 year
+        maxAge: 60 * 60 * 24 * 7,
         domain: process.env.ENVIRONMENT === 'development' ? '' : `.localhost`, // the period before is important and intentional
     },
     proxy: true,
