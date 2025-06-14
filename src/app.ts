@@ -2,20 +2,18 @@ import express from 'express';
 import cors from 'cors'
 import http from 'http'
 import { Server } from 'socket.io'
-import passport from 'passport';
-import session from 'express-session';
 import client from './db'
 import { Crop, CropSize } from './models/crop';
-import { resolve } from 'path';
+import { initPassport, isAuthenticated } from './auth';
+import session from 'express-session';
 
 const SERVER_URL = process.env.SERVER_URL || 'http://localhost:3000';
 const CLIENT_URL = process.env.CLIENT_URL || 'http://localhost:5173';
 
 const app = express();
 
-app.get('/', (_, res) => {
-  res.send('<h1>Agrifusion Backend</h1>');
-});
+app.use(express.json());
+app.use(express.urlencoded());
 
 app.use(cors({
     origin: CLIENT_URL,
@@ -24,12 +22,21 @@ app.use(cors({
 
 app.set('trust proxy', 1)
 
-// using noleak memorystore
-const MemoryStore = require('memorystore')(session);
+const MongoDBStore = require('connect-mongodb-session')(session);
+const user = process.env.DB_USER;
+const pass = process.env.DB_PASS;
+const uri = `mongodb+srv://${user}:${pass}@agrifusion-data.ocljyi7.mongodb.net/?retryWrites=true&w=majority&appName=agrifusion-data`
+const store = new MongoDBStore({
+  uri: uri,
+  databaseName: 'agrifusion',
+  collection: 'sessions',
+  clear_interval: 3600 * 24
+});
+
 app.use(session({ 
     secret: "secret",
     resave: false,
-    saveUninitialized: false,
+    saveUninitialized: true,
     cookie: {
         sameSite: 'lax', // lax is important, don't use 'strict' or 'none'
         httpOnly: process.env.ENVIRONMENT !== 'development', // must be true in production
@@ -39,52 +46,13 @@ app.use(session({
         domain: process.env.ENVIRONMENT === 'development' ? '' : `.localhost`, // the period before is important and intentional
     },
     proxy: true,
-    store: new MemoryStore({
-        checkPeriod: 86400000 // prune expired entries every 24h
-    })
+    store: store
 }))
+initPassport(app);
 
-require('./auth');
-app.use(passport.initialize());
-app.use(passport.session());
-app.use(passport.authenticate('session'))
-
-// google auth page
-app.get(
-    "/auth/google", 
-    passport.authenticate('google', { 
-        scope: ['profile'] 
-    })
-);
-
-// google callback page
-app.get(
-    "/google/callback", 
-    passport.authenticate('google', { 
-        session: true,
-        successRedirect: CLIENT_URL + '/#/play',
-        failureRedirect: CLIENT_URL
-    })
-);
-
-// auth middleware
-function isAuthenticated(req: any, res: any, next: any) {
-    if (req.user) next();
-    else res.json({ loggedIn: false});
-}
-
-// get user login information
-app.get(
-    "/account",
-    isAuthenticated,
-    (req, res) => {
-        const user = {
-            ...req.user,
-            loggedIn: true
-        }
-        res.json(user);
-    }
-)
+app.get('/', (_, res) => {
+  res.send('<h1>Agrifusion Backend</h1>');
+});
 
 const serv = http.createServer(app)
 
