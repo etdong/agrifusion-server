@@ -26,7 +26,7 @@ export function initPassport(app: any) {
             return cb(null, false, { message: 'Username can only contain letters, numbers, and underscores' });
         }
         client.connect().then(() => {
-            const collection = client.db('agrifusion').collection('farms');
+            const collection = client.db('agrifusion').collection('users');
             collection.findOne({ username: username }).then((user: any) => {
                 if (!user) { 
                     console.log('User does not exist: ', username);
@@ -77,11 +77,25 @@ export function initPassport(app: any) {
             res.redirect(CLIENT_URL + '/#/signup');
             return
         }
+
+        const password = req.body.password;
+        if (!password || password.length < 6) {
+            const err = 'Password must be at least 6 characters long';
+            res.cookie('error', err);
+            res.redirect(CLIENT_URL + '/#/signup');
+            return
+        }
+        if (password.includes(' ')) {
+            const err = 'Password cannot contain spaces';
+            res.cookie('error', err);
+            res.redirect(CLIENT_URL + '/#/signup');
+            return
+        }
+
         var salt = crypto.randomBytes(16);
         crypto.pbkdf2(req.body.password, salt, 310000, 32, 'sha256', (err, hashedPassword) => {
             if (err) { return next(err); }
             const collection = client.db('agrifusion').collection('users');
-            const farm = Array.from({ length: 3 }, () => Array.from({ length: 3 }, () => null))
             collection.findOne({ username: req.body.username }).then((user: any) => {
                 if (user) {
                     console.log('Username taken!')
