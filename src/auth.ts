@@ -151,14 +151,14 @@ export function initPassport(app: any) {
     });
     
     app.get('/api/user', isAuthenticated, (req: any, res: any) => {
-        console.log(req.user)
         res.send({ id: req.user._id, username: req.user.username, loggedIn: true });
     });
 }
 
 function isAuthenticated(req: any, res: any, next: any) {
     if (req.isAuthenticated()) next();
-    else res.json({ 
+    else res.json({
+        status: 400,
         loggedIn: false,
         message: "Player is not authenticated. Please log in."
     });
