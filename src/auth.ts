@@ -2,6 +2,8 @@ import passport from "passport";
 import client from "./db";
 import * as passportStrategy from "passport-local";
 import crypto from "crypto";
+const cookieParser = require('cookie-parser');
+
 
 const CLIENT_URL = process.env.CLIENT_URL || 'http://localhost:5173';
 
@@ -9,17 +11,26 @@ export function initPassport(app: any) {
     app.use(passport.initialize());
     app.use(passport.session());
     app.use(passport.authenticate('session'));
+    app.use(cookieParser());
 
     passport.use(new passportStrategy.Strategy({ usernameField: "username"}, (username, password, cb) => {
         if (!username || !password) {
-            return cb(null, false, { message: 'Username and password are required.' });
+            return cb(null, false, { message: 'Username and password are required' });
+        }
+        username = username.trim();
+        // input checking for username
+        if (username.length < 3 || username.length > 20) {
+            return cb(null, false, { message: 'Username must be between 3 and 20 characters' });
+        }
+        if (!/^[a-zA-Z0-9_]+$/.test(username)) {
+            return cb(null, false, { message: 'Username can only contain letters, numbers, and underscores' });
         }
         client.connect().then(() => {
             const collection = client.db('agrifusion').collection('farms');
             collection.findOne({ username: username }).then((user: any) => {
                 if (!user) { 
                     console.log('User does not exist: ', username);
-                    return cb(null, false, { message: 'User does not exist! Please sign up.' }) 
+                    return cb(null, false, { message: 'User does not exist! Please sign up' }) 
                 }
 
                 crypto.pbkdf2(password, user.salt.buffer, 310000, 32, 'sha256', (err, hashedPassword) => {
@@ -28,7 +39,7 @@ export function initPassport(app: any) {
                         console.log(user.hashed_password.buffer);
                         console.log(hashedPassword)
                         console.log('Incorrect username or password.', username);
-                        return cb(null, false, { message: 'Incorrect username or password.' });
+                        return cb(null, false, { message: 'Incorrect password. Please try again' });
                     }
                     console.log('User authenticated successfully:', username);
                     return cb(null, user);
@@ -53,6 +64,19 @@ export function initPassport(app: any) {
     });
 
     app.post('/api/signup', (req: any, res: any, next: any) => {
+        const username = req.body.username;
+        if (username.length < 3 || username.length > 20) {
+            const err = 'Username must be between 3 and 20 characters';
+            res.cookie('error', err);
+            res.redirect(CLIENT_URL + '/#/signup');
+            return
+        }
+        if (!/^[a-zA-Z0-9_]+$/.test(username) || username.includes(' ')) {
+            const err = 'Username can only contain letters, numbers, and underscores';
+            res.cookie('error', err);
+            res.redirect(CLIENT_URL + '/#/signup');
+            return
+        }
         var salt = crypto.randomBytes(16);
         crypto.pbkdf2(req.body.password, salt, 310000, 32, 'sha256', (err, hashedPassword) => {
             if (err) { return next(err); }
@@ -61,29 +85,29 @@ export function initPassport(app: any) {
             collection.findOne({ username: req.body.username }).then((user: any) => {
                 if (user) {
                     console.log('Username taken!')
-                    res.redirect(CLIENT_URL + '/#/signup?error=username_taken');
-                } else {
-                    collection.insertOne({ 
-                        username: req.body.username,
-                        hashed_password: hashedPassword,
-                        salt: salt,
-                        farm: farm,
-                        size: 3,
-                        coins: 0,
-                    }).catch((err) => {
-                        console.error('Error creating player:', err);
-                        res.redirect(CLIENT_URL + '/#/signup?error=' + err);
-                    }).then(() => {
-                        console.log('User created successfully:', req.body.username);
-                        const user = {
-                            username: req.body.username
-                        };
-                        req.login(user, (err) => {
-                            if (err) { return next(err); }
-                            res.redirect(CLIENT_URL);
-                        })
-                    });
+                    const err = 'Username already taken. Please choose another one.';
+                    res.cookie('error', err);
+                    res.redirect(CLIENT_URL + '/#/signup');
+                    return
                 }
+                collection.insertOne({ 
+                    username: req.body.username,
+                    hashed_password: hashedPassword,
+                    salt: salt,
+                }).catch((err) => {
+                    console.error('Error creating user:', err);
+                    res.cookie('error', err);
+                    res.redirect(CLIENT_URL + '/#/signup');
+                }).then(() => {
+                    console.log('User created successfully:', req.body.username);
+                    const user = {
+                        username: req.body.username
+                    };
+                    req.login(user, (err) => {
+                        if (err) { return next(err); }
+                        res.redirect(CLIENT_URL);
+                    })
+                });
             })
         });
     });
@@ -97,31 +121,31 @@ export function initPassport(app: any) {
         }, (err, user, info) => {
             if (err) {
                 console.log(err)
-                res.redirect(CLIENT_URL + '/?error=' + encodeURIComponent(err));
-                res.redirect(CLIENT_URL);
+                return next(err)
             }
             if (!user) {
                 console.log(info.message)
-                res.redirect(CLIENT_URL + '/?error=' + encodeURIComponent(info.message));
-            } else {
-                req.logIn(user, (err: any) => {
-                    if (err) { return next(err); }
-                    res.redirect(CLIENT_URL + '/#/play');
-                });
+                res.cookie('error', info.message);
+                res.redirect(CLIENT_URL);
+                return
             }
+            req.logIn(user, (err: any) => {
+                if (err) { return next(err); }
+                res.redirect(CLIENT_URL + '/#/play');
+            });
         })(req, res, next)
     });
     
     app.get('/api/user', isAuthenticated, (req: any, res: any) => {
-        res.send({ id: req.user.id, username: req.user.username, loggedIn: true });
+        console.log(req.user)
+        res.send({ id: req.user._id, username: req.user.username, loggedIn: true });
     });
 }
 
-export function isAuthenticated(req: any, res: any, next: any) {
+function isAuthenticated(req: any, res: any, next: any) {
     if (req.isAuthenticated()) next();
     else res.json({ 
         loggedIn: false,
         message: "Player is not authenticated. Please log in."
     });
 }
-

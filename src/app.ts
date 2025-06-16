@@ -4,7 +4,7 @@ import http from 'http'
 import { Server } from 'socket.io'
 import client from './db'
 import { Crop, CropSize } from './models/crop';
-import { initPassport, isAuthenticated } from './auth';
+import { initPassport } from './auth';
 import session from 'express-session';
 
 const SERVER_URL = process.env.SERVER_URL || 'http://localhost:3000';
@@ -13,7 +13,7 @@ const CLIENT_URL = process.env.CLIENT_URL || 'http://localhost:5173';
 const app = express();
 
 app.use(express.json());
-app.use(express.urlencoded());
+app.use(express.urlencoded({ extended: true }));
 
 app.use(cors({
     origin: CLIENT_URL,
@@ -159,25 +159,24 @@ io.sockets.on('connection', (socket: any) => {
         io.emit('UPDATE player/disconnect', { playerId: socket.playerId });
     })
 
-    socket.on('POST player/login', ( data: { playerName: string, playerId: string }, callback: (arg0: { status: string; data: any; }) => void) => {
-        console.log('RECV: login', data.playerName, data.playerId);
+    socket.on('POST player/login', ( data: { username: string }, callback: (arg0: { status: string; data: any; }) => void) => {
+        console.log('RECV: login', data.username);
         if (playerList[socket.id]) {
             for (const player of Object.values(playerList)) {
-                if (player.playerId === data.playerId && player.loggedIn) {
-                    console.error('Player already logged in:', data.playerName, 'ID:', data.playerId);
+                if (player.username === data.username && player.loggedIn) {
+                    console.error('Player already logged in:', data.username);
                     callback({ status: 'err', data: 'Player already logged in' });
                     return;
                 }
             }
             const player = playerList[socket.id];
             player.loggedIn = true;
-            player.playerId = data.playerId;
-            player.name = data.playerName;
-            console.log('Player logged in:', data.playerName, 'ID:', data.playerId);
-            callback({ status: 'ok', data: 'Player login received' });
+            player.name = data.username;
+            console.log('Player logged in:', data.username);
+            callback({ status: 'ok', data: 'Player login successful' });
         } else {
             console.error('Socket not found for ID:', socket.id);
-            callback({ status: 'ok', data: 'Player login received' });
+            callback({ status: 'err', data: `Socket not found for ID:${socket.id}` });
         }
     })
 
