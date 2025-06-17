@@ -19,9 +19,10 @@ app.use(express.urlencoded({ extended: true }));
 app.use(cors({
     origin: CLIENT_URL,
     credentials: true,
+    exposedHeaders: ['set-cookie'],
 }));
 
-app.set('trust proxy', 1)
+app.set('trust proxy', true)
 
 const MongoDBStore = require('connect-mongodb-session')(session);
 const user = process.env.DB_USER;
