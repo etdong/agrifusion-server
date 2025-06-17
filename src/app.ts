@@ -22,6 +22,8 @@ app.use(cors({
     exposedHeaders: ['set-cookie'],
 }));
 
+console.log(`CORS enabled for ${CLIENT_URL}`)
+
 app.set('trust proxy', true)
 
 const MongoDBStore = require('connect-mongodb-session')(session);
