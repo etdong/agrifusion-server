@@ -17,12 +17,10 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 app.use(cors({
-    origin: CLIENT_URL,
+    origin: true,
     credentials: true,
     exposedHeaders: ['set-cookie'],
 }));
-
-console.log(`CORS enabled for ${CLIENT_URL}`)
 
 app.set('trust proxy', true)
 

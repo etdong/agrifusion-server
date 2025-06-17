@@ -18,7 +18,7 @@ const app = (0, express_1.default)();
 app.use(express_1.default.json());
 app.use(express_1.default.urlencoded({ extended: true }));
 app.use((0, cors_1.default)({
-    origin: CLIENT_URL,
+    origin: true,
     credentials: true,
     exposedHeaders: ['set-cookie'],
 }));
@@ -59,8 +59,7 @@ const io = new socket_io_1.Server(serv, {
     },
 });
 serv.listen(3000, () => {
-    console.log(`server running at ${SERVER_URL}`);
-    console.log(`CORS enabled for ${CLIENT_URL}`);
+    console.log(`server running at ${process.env.SERVER_URL}`);
 });
 const GRID_SIZE = 72;
 const MAP_SIZE = 50;
