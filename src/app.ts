@@ -37,14 +37,11 @@ const store = new MongoDBStore({
 app.use(session({ 
     secret: "secret",
     resave: false,
-    saveUninitialized: true,
+    saveUninitialized: false,
     cookie: {
-        sameSite: 'lax', // lax is important, don't use 'strict' or 'none'
-        httpOnly: process.env.ENVIRONMENT !== 'development', // must be true in production
-        path: '/',
-        secure: process.env.ENVIRONMENT !== 'development', // must be true in production
-        maxAge: 60 * 60 * 24 * 7,
-        domain: process.env.ENVIRONMENT === 'development' ? '' : `.donger.ca`, // the period before is important and intentional
+        secure: true,
+        sameSite: 'none',
+        maxAge: 1000 * 60 * 60 * 24
     },
     proxy: true,
     store: store
