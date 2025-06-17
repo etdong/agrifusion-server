@@ -22,7 +22,6 @@ app.use((0, cors_1.default)({
     credentials: true,
     exposedHeaders: ['set-cookie'],
 }));
-console.log(`CORS enabled for ${CLIENT_URL}`);
 app.set('trust proxy', true);
 const MongoDBStore = require('connect-mongodb-session')(express_session_1.default);
 const user = process.env.DB_USER;
@@ -35,17 +34,16 @@ const store = new MongoDBStore({
     clear_interval: 3600 * 24
 });
 app.use((0, express_session_1.default)({
-    secret: "TopSecretWord",
+    secret: "secret",
     resave: false,
     saveUninitialized: false,
-    store: store,
     cookie: {
-        domain: "donger.ca",
-        path: '/',
-        maxAge: 1000 * 60 * 60 * 24, // 1 day
         secure: true,
-        sameSite: 'lax',
+        sameSite: 'none',
+        maxAge: 1000 * 60 * 60 * 24
     },
+    proxy: true,
+    store: store
 }));
 (0, auth_1.initPassport)(app);
 app.get('/', (_, res) => {
@@ -61,7 +59,8 @@ const io = new socket_io_1.Server(serv, {
     },
 });
 serv.listen(3000, () => {
-    console.log(`server running at ${process.env.SERVER_URL}`);
+    console.log(`server running at ${SERVER_URL}`);
+    console.log(`CORS enabled for ${CLIENT_URL}`);
 });
 const GRID_SIZE = 72;
 const MAP_SIZE = 50;
