@@ -100,26 +100,26 @@ function initPassport(app) {
         const username = req.body.username;
         if (username.length < 3 || username.length > 20) {
             const err = 'Username must be between 3 and 20 characters';
-            res.cookie('error', err);
+            res.cookie('error', err, { httpOnly: false, secure: true });
             res.redirect(CLIENT_URL + '/#/signup');
             return;
         }
         if (!/^[a-zA-Z0-9_]+$/.test(username) || username.includes(' ')) {
             const err = 'Username can only contain letters, numbers, and underscores';
-            res.cookie('error', err);
+            res.cookie('error', err, { httpOnly: false, secure: true });
             res.redirect(CLIENT_URL + '/#/signup');
             return;
         }
         const password = req.body.password;
         if (!password || password.length < 6) {
             const err = 'Password must be at least 6 characters long';
-            res.cookie('error', err);
+            res.cookie('error', err, { httpOnly: false, secure: true });
             res.redirect(CLIENT_URL + '/#/signup');
             return;
         }
         if (password.includes(' ')) {
             const err = 'Password cannot contain spaces';
-            res.cookie('error', err);
+            res.cookie('error', err, { httpOnly: false, secure: true });
             res.redirect(CLIENT_URL + '/#/signup');
             return;
         }
@@ -133,7 +133,7 @@ function initPassport(app) {
                 if (user) {
                     console.log('Username taken!');
                     const err = 'Username already taken. Please choose another one.';
-                    res.cookie('error', err);
+                    res.cookie('error', err, { httpOnly: false, secure: true });
                     res.redirect(CLIENT_URL + '/#/signup');
                     return;
                 }
@@ -143,7 +143,7 @@ function initPassport(app) {
                     salt: salt,
                 }).catch((err) => {
                     console.error('Error creating user:', err);
-                    res.cookie('error', err);
+                    res.cookie('error', err, { httpOnly: false, secure: true });
                     res.redirect(CLIENT_URL + '/#/signup');
                 }).then(() => {
                     console.log('User created successfully:', req.body.username);
@@ -173,7 +173,7 @@ function initPassport(app) {
             }
             if (!user) {
                 console.log(info.message);
-                res.cookie('error', info.message);
+                res.cookie('error', info.message, { httpOnly: false, secure: true });
                 res.redirect(CLIENT_URL);
                 return;
             }

@@ -20,8 +20,10 @@ app.use(express_1.default.urlencoded({ extended: true }));
 app.use((0, cors_1.default)({
     origin: CLIENT_URL,
     credentials: true,
+    exposedHeaders: ['set-cookie'],
 }));
-app.set('trust proxy', 1);
+console.log(`CORS enabled for ${CLIENT_URL}`);
+app.set('trust proxy', true);
 const MongoDBStore = require('connect-mongodb-session')(express_session_1.default);
 const user = process.env.DB_USER;
 const pass = process.env.DB_PASS;
@@ -33,19 +35,17 @@ const store = new MongoDBStore({
     clear_interval: 3600 * 24
 });
 app.use((0, express_session_1.default)({
-    secret: "secret",
+    secret: "TopSecretWord",
     resave: false,
-    saveUninitialized: true,
+    saveUninitialized: false,
+    store: store,
     cookie: {
-        sameSite: 'lax', // lax is important, don't use 'strict' or 'none'
-        httpOnly: process.env.ENVIRONMENT !== 'development', // must be true in production
+        domain: "donger.ca",
         path: '/',
-        secure: process.env.ENVIRONMENT !== 'development', // must be true in production
-        maxAge: 60 * 60 * 24 * 7,
-        domain: process.env.ENVIRONMENT === 'development' ? '' : `.localhost`, // the period before is important and intentional
+        maxAge: 1000 * 60 * 60 * 24, // 1 day
+        secure: true,
+        sameSite: 'lax',
     },
-    proxy: true,
-    store: store
 }));
 (0, auth_1.initPassport)(app);
 app.get('/', (_, res) => {
