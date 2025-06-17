@@ -34,18 +34,19 @@ const store = new MongoDBStore({
   clear_interval: 3600 * 24
 });
 
-app.use(session({ 
-    secret: "secret",
-    resave: false,
-    saveUninitialized: false,
-    cookie: {
-        secure: true,
-        sameSite: 'none',
-        maxAge: 1000 * 60 * 60 * 24
-    },
-    proxy: true,
-    store: store
-}))
+app.use(session({
+  secret: "TopSecretWord",
+  resave: false,
+  saveUninitialized: false,
+  store: store,
+  cookie: {
+    domain:"donger.ca",
+    path:'/',
+    maxAge: 1000 * 60 * 60 * 24, // 1 day
+    secure: true,
+    sameSite: 'lax',
+  },
+}));
 initPassport(app);
 
 app.get('/', (_, res) => {
