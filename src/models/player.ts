@@ -1,4 +1,3 @@
-import { WithId } from "mongodb";
 import client from "../db";
 import { ItemName } from "./bag";
 import { Crop } from "./crop";
