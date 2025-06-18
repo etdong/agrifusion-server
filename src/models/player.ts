@@ -5,25 +5,19 @@ import { Crop } from "./crop";
 
 export class Player {
     socket: any;
-    loggedIn: boolean;
-    username: string;
-    pos: { x: number, y: number };
-    coins: number;
-    bag: any[];
-    farmSize: number;
-    farmOrigin: { x: number, y: number };
-    farmPlaced: boolean;
+    loggedIn: boolean = false;
+    username: string = '';
+    pos: { x: number, y: number } = { x: -1, y: -1 };
+    coins: number = 0;
+    bag: any[] = [];
+    farmSize: number = 3;
+    farmOrigin: { x: number, y: number } = { x: -1, y: -1 };
+    farmPlaced: boolean = false;
+    level: number = 1;
+    exp: number = 0;
 
     constructor(socket: any) {
         this.socket = socket;
-        this.loggedIn = false;
-        this.username = '';
-        this.pos = { x: -1, y: -1 };
-        this.coins = 0;
-        this.bag = [];
-        this.farmSize = 3;
-        this.farmOrigin = { x: -1, y: -1 };
-        this.farmPlaced = false;
     }
 
     addItem(cropType: string): void {
@@ -60,6 +54,41 @@ export class Player {
         return false;
     }
 
+    addExp(amount: number): void {
+        this.exp += amount;
+        if (this.exp >= levels[this.level].levelUp) {
+            this.levelUp();
+        }
+    }
+
+    async levelUp(): Promise<void> {
+        if (this.level < Object.keys(levels).length) {
+            this.level += 1;
+            this.exp = 0; // Reset experience after leveling up
+            this.farmSize = levels[this.level].farmSize;
+            try {
+                await client.connect();
+                const db = client.db('agrifusion');
+                const farmColl = db.collection('farms');
+                await farmColl.updateOne(
+                    { username: this.username },
+                    {
+                        $set: {
+                            level: this.level,
+                            exp: this.exp,
+                            size: this.farmSize,
+                        }
+                    }
+                );
+                console.log(`${this.username} leveled up to level ${this.level}! Farm size is now ${this.farmSize}`);
+            } catch (err) {
+                throw new Error(this.username + 'error leveling up: ' + err);
+            }
+        } else {
+            console.log(`${this.username} is already at max level.`);
+        }
+    }
+
     async saveBag(): Promise<void> {
         try {
             await client.connect();
@@ -90,7 +119,9 @@ export class Player {
                 {
                     $set: {
                         farm: farm,
-                        farmSize: this.farmSize,
+                        size: this.farmSize,
+                        level: this.level,
+                        exp: this.exp,
                     }
                 }
             );
@@ -109,8 +140,10 @@ export class Player {
             if (!farmData) {
                 farmData = {
                     username: this.username,
-                    farm: Array.from({ length: 3 }, () => Array.from({ length: 3 }, () => null)),
+                    farm: Array.from({ length: 10 }, () => Array.from({ length: 10 }, () => null)),
                     size: this.farmSize,
+                    level: this.level,
+                    exp: this.exp,
                 }
                 await farmColl.insertOne(farmData)
             }
@@ -140,4 +173,12 @@ export class Player {
             throw new Error(this.username + 'error retrieving bag: ' + err);
         }
     }
+}
+
+const levels = {
+    1: { levelUp: 100, farmSize: 3 },
+    2: { levelUp: 200, farmSize: 4 },
+    3: { levelUp: 400, farmSize: 5 },
+    4: { levelUp: 800, farmSize: 6 },
+    5: { levelUp: 1600, farmSize: 7 },
 }
