@@ -166,11 +166,14 @@ io.sockets.on('connection', (socket: any) => {
         const username = player.username;
         console.log('RECV: GET player/farm', username);
         const playerGridPos = { x: Math.round(player.pos.x / GRID_SIZE), y: Math.round(player.pos.y / GRID_SIZE) };
+        player.farmOrigin = playerGridPos;
+
         if (playerGridPos.x < 0 || playerGridPos.x >= MAP_SIZE || playerGridPos.y < 0 || playerGridPos.y >= MAP_SIZE) {
             console.error('Player position out of bounds:', playerGridPos);
             callback({ status: 'err', data: 'Player position out of bounds' });
             return;
         }
+
         if (player.farmPlaced) {
             console.error('Player already has a farm placed:', username);
             callback({ status: 'err', data: 'Farm already placed' });
@@ -200,7 +203,6 @@ io.sockets.on('connection', (socket: any) => {
             const farmData = await player.getFarm();
             console.log('GET player/farm', username);
             player.farmSize = farmData.size; // set farm size from database
-            player.farmOrigin = playerGridPos;
             
             for (let x = 0; x < player.farmSize; x++) {
                 for (let y = 0; y < player.farmSize; y++) {
