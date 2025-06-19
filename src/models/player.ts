@@ -2,13 +2,32 @@ import client from "../db";
 import { ItemName } from "./bag";
 import { Crop } from "./crop";
 
+export const levels = {
+    1: { levelUp: 100, farmSize: 3, crops: ['wheat'] },
+    2: { levelUp: 200, farmSize: 4, crops: ['wheat', 'sugarcane'] },
+    3: { levelUp: 400, farmSize: 5, crops: ['wheat', 'carrot', 'sugarcane'] },
+    4: { levelUp: 800, farmSize: 6, crops: ['wheat', 'carrot', 'sugarcane', 'cabbage'] },
+    5: { levelUp: 1500, farmSize: 7, crops: ['wheat', 'carrot', 'sugarcane', 'cabbage', 'potato'] },
+    6: { levelUp: 2500, farmSize: 8, crops: ['wheat', 'carrot', 'sugarcane', 'cabbage', 'potato', 'tomato'] },
+    7: { levelUp: 4000, farmSize: 9, crops: ['wheat', 'carrot', 'sugarcane', 'cabbage', 'potato', 'tomato', 'pumpkin'] },
+    8: { levelUp: 6500, farmSize: 10, crops: ['wheat', 'carrot', 'sugarcane', 'cabbage', 'potato', 'tomato', 'pumpkin', 'corn'] },
+    9: { levelUp: 10000, farmSize: 11, crops: ['wheat', 'carrot', 'sugarcane', 'cabbage', 'potato', 'tomato', 'pumpkin', 'corn', 'bean'] },
+    10: { levelUp: 50000, farmSize: 12, crops: ['wheat', 'carrot', 'sugarcane', 'cabbage', 'potato', 'tomato', 'pumpkin', 'corn', 'bean', 'onion'] },
+    11: { levelUp: 1000000, farmSize: 13, crops: ['wheat', 'carrot', 'sugarcane', 'cabbage', 'potato', 'tomato', 'pumpkin', 'corn', 'bean', 'onion', 'garlic'] },
+}
+
+const MAX_FARMSIZE = 13
+
 export class Player {
     socket: any;
     loggedIn: boolean = false;
     username: string = '';
     pos: { x: number, y: number } = { x: -1, y: -1 };
+
     coins: number = 0;
     bag: any[] = [];
+    crates: number = 0;
+
     farmSize: number = 3;
     farmOrigin: { x: number, y: number } = { x: -1, y: -1 };
     farmPlaced: boolean = false;
@@ -17,6 +36,20 @@ export class Player {
 
     constructor(socket: any) {
         this.socket = socket;
+    }
+
+    async logout(): Promise<void> {
+        try {
+            await client.connect();
+            const db = client.db('agrifusion');
+            const userColl = db.collection('users');
+            await userColl.updateOne({ username: this.username }, {
+            $set: {
+                lastLogin: new Date()
+            }})
+        } catch (err) {
+            throw new Error(this.username + ' error logging out: ' + err);
+        }   
     }
 
     addItem(cropType: string): void {
@@ -48,6 +81,18 @@ export class Player {
     removeCoins(amount: number): boolean {
         if (this.coins >= amount) {
             this.coins -= amount;
+            return true;
+        }
+        return false;
+    }
+
+    addCrate(amount: number): void {
+        this.crates += amount;
+    }
+
+    openCrate(): boolean {
+        if (this.crates > 0) {
+            this.crates -= 1;
             return true;
         }
         return false;
@@ -99,12 +144,13 @@ export class Player {
                     $set: {
                         bag: this.bag,
                         coins: this.coins,
+                        crates: this.crates,
                     }
                 }
             );
-            console.log(this.username + 'bag updated successfully');
+            console.log(this.username + ' bag updated successfully');
         } catch (err) {
-            throw new Error(this.username + 'error updating farm: ' + err);
+            throw new Error(this.username + ' error updating farm: ' + err);
         }
     }
 
@@ -139,7 +185,7 @@ export class Player {
             if (!farmData) {
                 farmData = {
                     username: this.username,
-                    farm: Array.from({ length: 10 }, () => Array.from({ length: 10 }, () => null)),
+                    farm: Array.from({ length: MAX_FARMSIZE }, () => Array.from({ length: 10 }, () => null)),
                     size: this.farmSize,
                     level: this.level,
                     exp: this.exp,
@@ -163,6 +209,7 @@ export class Player {
                     username: this.username,
                     bag: [],
                     coins: 0,
+                    crates: 10,
                 }
                 await bagColl.insertOne(bagData)
                 console.log('New bag created for player:', this.username);
@@ -172,12 +219,19 @@ export class Player {
             throw new Error(this.username + 'error retrieving bag: ' + err);
         }
     }
-}
 
-const levels = {
-    1: { levelUp: 100, farmSize: 3 },
-    2: { levelUp: 200, farmSize: 4 },
-    3: { levelUp: 400, farmSize: 5 },
-    4: { levelUp: 800, farmSize: 6 },
-    5: { levelUp: 1600, farmSize: 7 },
+    async getOfflineTime() {
+        try {
+            await client.connect();
+            const db = client.db('agrifusion');
+            const userColl = db.collection('users');
+            let userData: any = await userColl.findOne({ username: this.username });
+            const lastLogin = userData?.lastLogin || new Date();
+            const currentTime = new Date();
+            const offlineTime = Math.floor((currentTime.getTime() - lastLogin.getTime()) / 1000); // in seconds
+            return offlineTime;
+        } catch (err) {
+            throw new Error(this.username + 'error retrieving bag: ' + err);
+        }
+    }
 }

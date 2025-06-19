@@ -2,10 +2,10 @@ import express from 'express';
 import cors from 'cors'
 import http from 'http'
 import { Server } from 'socket.io'
-import { Crop, CropSize, CropType } from './models/crop';
+import { Crop, CropSize, CropType, harvestCrop } from './models/crop';
 import { initPassport } from './auth';
 import session from 'express-session';
-import { Player } from './models/player';
+import { levels, Player } from './models/player';
 
 const SERVER_URL = process.env.SERVER_URL || 'http://localhost:3000';
 const CLIENT_URL = process.env.CLIENT_URL || 'http://localhost:5173';
@@ -81,10 +81,10 @@ const GameGrid: { [key: number]: { [key: number]: Crop | null } } = Array.from({
 const ClaimGrid: { [key: number]: { [key: number]: string } } = Array.from({ length: MAP_SIZE }, () =>
     Array.from({ length: MAP_SIZE }, () => '' ))
 
-const DEF_FARMSIZE = 3
-const DEF_COINS = 0
-const DEF_FARM: { [key: number]: { [key: number]: Crop | null } } = Array.from({ length: DEF_FARMSIZE }, () =>
-    Array.from({ length: DEF_FARMSIZE }, () => null))
+const MAX_FARMSIZE = 13
+
+autoSave(); // start autosave interval
+updatePlayerPositions(); // start updating player positions
 
 io.sockets.on('connection', (socket: any) => {
     console.log('socket connection %s', socket.id);
@@ -103,7 +103,7 @@ io.sockets.on('connection', (socket: any) => {
         }
         try {
             if (player.farmPlaced) {
-                const playerFarm: { [key: number]: { [key: number]: Crop | null } } = Array.from({ length: player.farmSize }, () => Array.from({ length: player.farmSize }, () => null))
+                const playerFarm: { [key: number]: { [key: number]: Crop | null } } = Array.from({ length: MAX_FARMSIZE }, () => Array.from({ length: MAX_FARMSIZE }, () => null))
                 for (let x = 0; x < player.farmSize; x++) {
                     for (let y = 0; y < player.farmSize; y++) {
                         const gridX = player.farmOrigin.x + x;
@@ -128,6 +128,7 @@ io.sockets.on('connection', (socket: any) => {
             console.error('Error updating farm:', err);
         }
         updateGameGrid();
+        player.logout()
         delete playerList[socket.id];
         io.emit('UPDATE player/disconnect', { username: socket.username });
     })
@@ -146,13 +147,18 @@ io.sockets.on('connection', (socket: any) => {
         try {
             const farmData = await player.getFarm();
             const bagData = await player.getBag();
+            const offlineTime = await player.getOfflineTime();
 
             player.farmSize = farmData.size; // set farm size from database
             player.level = farmData.level; // set player level from database
             player.exp = farmData.exp; // set player exp from database
             player.bag = bagData.bag; // set bag from database
             player.coins = bagData.coins; // set coins from database
+            player.crates = bagData.crates; // set crates from database
+            player.crates += Math.floor(offlineTime / 60) ; // add crates based on offline time, 1 crate per minute
+            startCrateTimer(player); // start crate timer for the player
             updatePlayer(player); // update player data in the game
+            console.log('GET player/data', player.username, '| offline time:', offlineTime);
             callback({ status: 'ok', data: '' });
         } catch (err) {
             console.error('Error fetching player data:', err);
@@ -238,7 +244,7 @@ io.sockets.on('connection', (socket: any) => {
 
     // POST methods
 
-    socket.on('POST player/login', ( data: { username: string }, callback: (arg0: { status: string; response: any; }) => void) => {
+    socket.on('POST player/login', ( data: { username: string, lastLogin: Date }, callback: (arg0: { status: string; response: any; }) => void) => {
         console.log('RECV: login', data.username);
         if (playerList[socket.id]) {
             for (const player of Object.values(playerList)) {
@@ -251,7 +257,6 @@ io.sockets.on('connection', (socket: any) => {
             const player = playerList[socket.id];
             player.loggedIn = true;
             player.username = data.username;
-            console.log('Player logged in:', data.username);
             callback({ status: 'ok', response: 'Player login successful' });
         } else {
             console.error('Socket not found for ID:', socket.id);
@@ -271,8 +276,8 @@ io.sockets.on('connection', (socket: any) => {
 
         const playerFarm: { 
                 [key: number]: { [key: number]: Crop | null } 
-            } = Array.from({ length: player.farmSize }, () =>
-                Array.from({ length: player.farmSize }, () => null))
+            } = Array.from({ length: MAX_FARMSIZE }, () =>
+                Array.from({ length: MAX_FARMSIZE }, () => null))
         for (let x = 0; x < player.farmSize; x++) {
             for (let y = 0; y < player.farmSize; y++) {
                 const gridX = player.farmOrigin.x + x;
@@ -321,12 +326,55 @@ io.sockets.on('connection', (socket: any) => {
         updatePlayer(player);
     })
 
-    socket.on('POST game/crop/spawn', (data: { newCrop: Crop }, callback: (arg0: { status: string; data: any; }) => void) => {
-        console.log('RECV: POST game/crop/spawn', data.newCrop);
-        const newCrop = data.newCrop;
-        GameGrid[newCrop.pos.x][newCrop.pos.y] = newCrop;
-        callback({ status: 'ok', data: newCrop });
+    socket.on('POST game/crop/spawn', (callback: (arg0: { status: string; data: any; }) => void) => {
+        console.log('RECV: POST game/crop/spawn');
+        const player = playerList[socket.id];
+        const possibleCrops = levels[player.level].crops;
+        const randomCropType = possibleCrops[Math.floor(Math.random() * possibleCrops.length)];
+        // find the nearest empty position to the player in the game grid
+        const origin = { x: Math.round(player.pos.x / GRID_SIZE), y: Math.round(player.pos.y / GRID_SIZE) };
+        let emptyPosFound = false;
+        let searchRadius = 0;
+        let newPos = { x: -1, y: -1 };
+        while (!emptyPosFound && searchRadius < 5) {
+            for (let x = origin.x - searchRadius; x <= origin.x + searchRadius; x++) {
+                for (let y = origin.y - searchRadius; y <= origin.y + searchRadius; y++) {
+                    if (x < 0 || x >= MAP_SIZE || y < 0 || y >= MAP_SIZE) continue; // Skip out of bounds
+                    if (GameGrid[x][y] === null) {
+                        newPos = { x, y };
+                        emptyPosFound = true;
+                        break;
+                    }
+                }
+                if (emptyPosFound) break;
+            }
+            searchRadius++;
+        }
+
+        if (!emptyPosFound) {
+            console.error('No empty position found for new crop');
+            callback({ status: 'err', data: 'No empty position found for new crop' });
+            return;
+        }
+
+        if (!player.openCrate()) {
+            console.error('Player does not have enough crates to spawn a crop');
+            callback({ status: 'err', data: 'Not enough crates to spawn a crop' });
+            return;
+        }
+
+        const newCrop = {
+            id: Math.random(),
+            pos: newPos,
+            type: randomCropType,
+            size: CropSize.SMALL
+        }
+
+        GameGrid[newPos.x][newPos.y] = newCrop; // Place the new crop in the game grid
+        console.log(`Spawned new crop of type ${randomCropType} at position (${newPos.x}, ${newPos.y})`);
+
         updateGameGrid();
+        updatePlayer(player);
     })
 
     socket.on('POST game/crop/move', (data: { oldPos: any, newPos: any }, callback: (arg0: { status: string; data: any; }) => void) => {
@@ -347,6 +395,7 @@ io.sockets.on('connection', (socket: any) => {
             if (crop.size === CropSize.XLARGE) {
                 console.log('RECV: POST game/crop/harvest', data)
                 harvestCrop(player, crop);
+                GameGrid[crop.pos.x][crop.pos.y] = null; // Remove the crop from the grid
                 callback({ status: 'ok', data: 'Crop harvested' });
             } else {
                 callback({ status: 'ok', data: null });
@@ -397,6 +446,7 @@ io.sockets.on('connection', (socket: any) => {
                 GameGrid[newPos.x][newPos.y] = newCrop;
                 GameGrid[oldPos.x][oldPos.y] = null; // Reset old position
                 player.addExp(10); // Add experience for merging
+                player.addCoins(3)
                 callback({ status: 'ok', data: 'merged 3' });
                 break;
             case mergeGroup.length >= 5:
@@ -414,11 +464,11 @@ io.sockets.on('connection', (socket: any) => {
                 GameGrid[bonusCropGridPos.x][bonusCropGridPos.y] = bonusCrop
                 GameGrid[oldPos.x][oldPos.y] = null;
                 player.addExp(20); // Add experience for merging
+                player.addCoins(6)
                 callback({ status: 'ok', data: 'merged 5' });
                 break; 
             }
         }
-
         updatePlayer(player);
         updateGameGrid();
     })
@@ -456,34 +506,37 @@ function updateGameGrid() {
     io.emit('UPDATE game/grid', { grid: cropInfo, claim: claimInfo });
 }
 
-setInterval(() => {
-    let data: { [key: string]: any } = {};
-    for (let i in playerList) {
-        let player = playerList[i]
-        data[player.socket.id] = {
-            username: player.username,
+function updatePlayerPositions() {
+    const playerPositions: { [key: string]: { pos: { x: number, y: number }, username: string }} = {};
+    for (const socketId in playerList) {
+        const player = playerList[socketId];
+        playerPositions[socketId] = {
             pos: player.pos,
+            username: player.username,
         }
     }
-    io.emit('UPDATE player/pos', data)
-}, 1000/10)
+    io.emit('UPDATE player/pos', playerPositions);
+    setTimeout(updatePlayerPositions, 1000 / 10); // Update every 100ms
+}
 
 // save player farm and bag data periodically
-setInterval(() => {
+async function autoSave() {
     if (Object.keys(playerList).length === 0) {
         console.log('No players online, skipping autosave');
+        setTimeout(autoSave, 1000 * 60 * 5); // reschedule autosave every 5 minutes
         return;
     }
     console.log('Autosaving...')
-    saveFarms();
-    saveBags();
-}, 1000 * 60 * 5);
+    await saveFarms();
+    await saveBags();
+    setTimeout(autoSave, 1000 * 60 * 5); // reschedule autosave every 5 minutes
+}
 
-function saveFarms() {
+async function saveFarms() {
     for (const socketId in playerList) {
         const player = playerList[socketId];
         if (player.loggedIn && player.farmPlaced) {
-            const playerFarm: { [key: number]: { [key: number]: Crop | null } } = Array.from({ length: player.farmSize }, () => Array.from({ length: player.farmSize }, () => null))
+            const playerFarm: { [key: number]: { [key: number]: Crop | null } } = Array.from({ length: MAX_FARMSIZE }, () => Array.from({ length: MAX_FARMSIZE }, () => null))
             for (let x = 0; x < player.farmSize; x++) {
                 for (let y = 0; y < player.farmSize; y++) {
                     const gridX = player.farmOrigin.x + x;
@@ -491,44 +544,18 @@ function saveFarms() {
                     if (GameGrid[gridX][gridY]) playerFarm[x][y] = GameGrid[gridX][gridY];
                 }
             }
-            player.saveFarm(playerFarm);
+            await player.saveFarm(playerFarm);
         }
     }
 }
 
-function saveBags() {
+async function saveBags() {
     for (const socketId in playerList) {
         const player = playerList[socketId];
         if (player.loggedIn) {
-            player.saveBag();
+            await player.saveBag();
         }
     }
-}
-
-function harvestCrop(player: Player, crop: Crop): void {
-    player.addExp(5); // Add experience for harvesting
-    switch (crop.type) {
-        case 'wheat':
-            player.addCoins(10);
-            player.addItem(CropType.WHEAT);
-            break;
-        case 'corn':
-            player.addCoins(15);
-            player.addItem(CropType.CORN);
-            break;
-        case 'carrot':
-            player.addCoins(20);
-            player.addItem(CropType.CARROT);
-            break;
-        case 'cabbage':
-            player.addCoins(30); 
-            player.addItem(CropType.CABBAGE);
-            break;
-        default:
-            console.error('Unknown crop type:', crop.type);
-    }
-    GameGrid[crop.pos.x][crop.pos.y] = null; // Remove the crop from the grid
-    updateGameGrid();
 }
 
 function dfs(crop: Crop, coll: Crop): Crop[] {
@@ -571,7 +598,14 @@ function dfs(crop: Crop, coll: Crop): Crop[] {
     return mergeGroup
 }
 
-function updatePlayer(player: any) {
+function updatePlayer(player: Player) {
     player.socket.emit('UPDATE player/level', { level: player.level, exp: player.exp });
     player.socket.emit('UPDATE player/coins', { coins: player.coins });
+    player.socket.emit('UPDATE player/crates', { crates: player.crates });
+}
+
+function startCrateTimer(player: Player) {
+    player.addCrate(1); // Add a crate immediately
+    player.socket.emit('UPDATE player/crates', { crates: player.crates });
+    setTimeout(startCrateTimer, 1000 * 30, player); // Add a crate every 30 seconds
 }

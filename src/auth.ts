@@ -38,19 +38,11 @@ export function initPassport(app: any) {
             crypto.pbkdf2(password, user.salt.buffer, 310000, 32, 'sha256', (err, hashedPassword) => {
                 if (err) { return cb(err); }
                 if (!crypto.timingSafeEqual(user.hashed_password.buffer, hashedPassword)) {
-                    console.log(user.hashed_password.buffer);
-                    console.log(hashedPassword)
                     console.log('Incorrect username or password.', username);
                     return cb(null, false, { message: 'Incorrect password. Please try again' });
                 }
                 console.log('User authenticated successfully:', username);
-                userColl.updateOne({ username: username }, {
-                    $set: {
-                        lastLogin: new Date()
-                    }
-                }).then(() => {
-                    return cb(null, user);
-                });
+                return cb(null, user);
             });
         } catch (err) {
             console.error('Error logging in: ', err);
@@ -60,7 +52,7 @@ export function initPassport(app: any) {
 
     passport.serializeUser((user: any, cb) => {
         process.nextTick(() => {
-            cb(null, { id: user._id, username: user.username });
+            cb(null, { username: user.username });
         });
     });
 
@@ -159,7 +151,7 @@ export function initPassport(app: any) {
     });
     
     app.get('/api/user', isAuthenticated, (req: any, res: any) => {
-        res.send({ id: req.user._id, username: req.user.username, loggedIn: true });
+        res.send({ username: req.user.username, loggedIn: true });
     });
 }
 
