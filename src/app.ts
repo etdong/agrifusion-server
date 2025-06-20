@@ -150,12 +150,12 @@ io.sockets.on('connection', (socket: any) => {
             const offlineTime = await player.getOfflineTime();
 
             player.farmSize = farmData.size; // set farm size from database
-            player.level = farmData.level; // set player level from database
-            player.exp = farmData.exp; // set player exp from database
+            player.level = bagData.level; // set player level from database
+            player.exp = bagData.exp; // set player exp from database
             player.bag = bagData.bag; // set bag from database
             player.coins = bagData.coins; // set coins from database
             player.crates = bagData.crates; // set crates from database
-            player.crates += Math.floor(offlineTime / 60) ; // add crates based on offline time, 1 crate per minute
+            player.crates += Math.min(Math.floor(offlineTime / 180 ), 50) ; // add crates based on offline time, 1 crate per 10 minute for a maximum of 50
             startCrateTimer(player); // start crate timer for the player
             updatePlayer(player); // update player data in the game
             console.log('GET player/data', player.username, '| offline time:', offlineTime);

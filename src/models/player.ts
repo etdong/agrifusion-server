@@ -145,6 +145,8 @@ export class Player {
                         bag: this.bag,
                         coins: this.coins,
                         crates: this.crates,
+                        level: this.level,
+                        exp: this.exp,
                     }
                 }
             );
@@ -165,8 +167,6 @@ export class Player {
                     $set: {
                         farm: farm,
                         size: this.farmSize,
-                        level: this.level,
-                        exp: this.exp,
                     }
                 }
             );
