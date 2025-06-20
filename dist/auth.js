@@ -32,6 +32,15 @@ var __importStar = (this && this.__importStar) || (function () {
         return result;
     };
 })();
+var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, generator) {
+    function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
+    return new (P || (P = Promise))(function (resolve, reject) {
+        function fulfilled(value) { try { step(generator.next(value)); } catch (e) { reject(e); } }
+        function rejected(value) { try { step(generator["throw"](value)); } catch (e) { reject(e); } }
+        function step(result) { result.done ? resolve(result.value) : adopt(result.value).then(fulfilled, rejected); }
+        step((generator = generator.apply(thisArg, _arguments || [])).next());
+    });
+};
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
@@ -48,7 +57,7 @@ function initPassport(app) {
     app.use(passport_1.default.session());
     app.use(passport_1.default.authenticate('session'));
     app.use(cookieParser());
-    passport_1.default.use(new passportStrategy.Strategy({ usernameField: "username" }, (username, password, cb) => {
+    passport_1.default.use(new passportStrategy.Strategy({ usernameField: "username" }, (username, password, cb) => __awaiter(this, void 0, void 0, function* () {
         if (!username || !password) {
             return cb(null, false, { message: 'Username and password are required' });
         }
@@ -60,35 +69,34 @@ function initPassport(app) {
         if (!/^[a-zA-Z0-9_]+$/.test(username)) {
             return cb(null, false, { message: 'Username can only contain letters, numbers, and underscores' });
         }
-        db_1.default.connect().then(() => {
-            const collection = db_1.default.db('agrifusion').collection('users');
-            collection.findOne({ username: username }).then((user) => {
-                if (!user) {
-                    console.log('User does not exist: ', username);
-                    return cb(null, false, { message: 'User does not exist! Please sign up' });
+        try {
+            yield db_1.default.connect();
+            const userColl = db_1.default.db('agrifusion').collection('users');
+            const user = yield userColl.findOne({ username: username });
+            if (!user) {
+                console.log('User does not exist: ', username);
+                return cb(null, false, { message: 'User does not exist! Please sign up' });
+            }
+            crypto_1.default.pbkdf2(password, user.salt.buffer, 310000, 32, 'sha256', (err, hashedPassword) => {
+                if (err) {
+                    return cb(err);
                 }
-                crypto_1.default.pbkdf2(password, user.salt.buffer, 310000, 32, 'sha256', (err, hashedPassword) => {
-                    if (err) {
-                        return cb(err);
-                    }
-                    if (!crypto_1.default.timingSafeEqual(user.hashed_password.buffer, hashedPassword)) {
-                        console.log(user.hashed_password.buffer);
-                        console.log(hashedPassword);
-                        console.log('Incorrect username or password.', username);
-                        return cb(null, false, { message: 'Incorrect password. Please try again' });
-                    }
-                    console.log('User authenticated successfully:', username);
-                    return cb(null, user);
-                });
-            }).catch((err) => {
-                console.error('Error finding user:', err);
-                return cb(err);
+                if (!crypto_1.default.timingSafeEqual(user.hashed_password.buffer, hashedPassword)) {
+                    console.log('Incorrect username or password.', username);
+                    return cb(null, false, { message: 'Incorrect password. Please try again' });
+                }
+                console.log('User authenticated successfully:', username);
+                return cb(null, user);
             });
-        });
-    }));
+        }
+        catch (err) {
+            console.error('Error logging in: ', err);
+            return cb(err);
+        }
+    })));
     passport_1.default.serializeUser((user, cb) => {
         process.nextTick(() => {
-            cb(null, { id: user._id, username: user.username });
+            cb(null, { username: user.username });
         });
     });
     passport_1.default.deserializeUser((user, cb) => {
@@ -141,6 +149,7 @@ function initPassport(app) {
                     username: req.body.username,
                     hashed_password: hashedPassword,
                     salt: salt,
+                    lastLogin: new Date(),
                 }).catch((err) => {
                     console.error('Error creating user:', err);
                     res.cookie('error', err, { httpOnly: false, secure: true });
@@ -186,7 +195,7 @@ function initPassport(app) {
         })(req, res, next);
     });
     app.get('/api/user', isAuthenticated, (req, res) => {
-        res.send({ id: req.user._id, username: req.user.username, loggedIn: true });
+        res.send({ username: req.user.username, loggedIn: true });
     });
 }
 function isAuthenticated(req, res, next) {

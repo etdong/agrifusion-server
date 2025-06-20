@@ -1,0 +1,1 @@
+{"version":3,"file":"crate.js","sourceRoot":"","sources":["../../src/models/crate.ts"],"names":[],"mappings":";;;AAGA,MAAa,KAAK;IAId,YAAY,GAA6B,EAAE,QAAc;QACrD,IAAI,CAAC,GAAG,GAAG,GAAG,CAAC;QACf,IAAI,CAAC,QAAQ,GAAG,QAAQ,CAAC;IAC7B,CAAC;IAED,SAAS,CAAC,MAAc;QACpB,MAAM,CAAC,MAAM,CAAC,EAAE,CAAC,CAAC,CAAC,uCAAuC;IAC9D,CAAC;CACJ;AAZD,sBAYC"}

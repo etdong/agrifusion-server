@@ -13,7 +13,7 @@ export function initPassport(app: any) {
     app.use(passport.authenticate('session'));
     app.use(cookieParser());
 
-    passport.use(new passportStrategy.Strategy({ usernameField: "username"}, (username, password, cb) => {
+    passport.use(new passportStrategy.Strategy({ usernameField: "username"}, async (username, password, cb) => {
         if (!username || !password) {
             return cb(null, false, { message: 'Username and password are required' });
         }
@@ -25,35 +25,34 @@ export function initPassport(app: any) {
         if (!/^[a-zA-Z0-9_]+$/.test(username)) {
             return cb(null, false, { message: 'Username can only contain letters, numbers, and underscores' });
         }
-        client.connect().then(() => {
-            const collection = client.db('agrifusion').collection('users');
-            collection.findOne({ username: username }).then((user: any) => {
-                if (!user) { 
-                    console.log('User does not exist: ', username);
-                    return cb(null, false, { message: 'User does not exist! Please sign up' }) 
-                }
 
-                crypto.pbkdf2(password, user.salt.buffer, 310000, 32, 'sha256', (err, hashedPassword) => {
-                    if (err) { return cb(err); }
-                    if (!crypto.timingSafeEqual(user.hashed_password.buffer, hashedPassword)) {
-                        console.log(user.hashed_password.buffer);
-                        console.log(hashedPassword)
-                        console.log('Incorrect username or password.', username);
-                        return cb(null, false, { message: 'Incorrect password. Please try again' });
-                    }
-                    console.log('User authenticated successfully:', username);
-                    return cb(null, user);
-                });
-            }).catch((err) => {
-                console.error('Error finding user:', err);
-                return cb(err);
-            })
-        })
+        try {
+            await client.connect();
+            const userColl = client.db('agrifusion').collection('users');
+            const user = await userColl.findOne({ username: username });
+            if (!user) { 
+                console.log('User does not exist: ', username);
+                return cb(null, false, { message: 'User does not exist! Please sign up' }) 
+            }
+
+            crypto.pbkdf2(password, user.salt.buffer, 310000, 32, 'sha256', (err, hashedPassword) => {
+                if (err) { return cb(err); }
+                if (!crypto.timingSafeEqual(user.hashed_password.buffer, hashedPassword)) {
+                    console.log('Incorrect username or password.', username);
+                    return cb(null, false, { message: 'Incorrect password. Please try again' });
+                }
+                console.log('User authenticated successfully:', username);
+                return cb(null, user);
+            });
+        } catch (err) {
+            console.error('Error logging in: ', err);
+            return cb(err);
+        }
     }));
 
     passport.serializeUser((user: any, cb) => {
         process.nextTick(() => {
-            cb(null, { id: user._id, username: user.username });
+            cb(null, { username: user.username });
         });
     });
 
@@ -108,6 +107,7 @@ export function initPassport(app: any) {
                     username: req.body.username,
                     hashed_password: hashedPassword,
                     salt: salt,
+                    lastLogin: new Date(),
                 }).catch((err) => {
                     console.error('Error creating user:', err);
                     res.cookie('error', err, { httpOnly: false, secure: true });
@@ -151,7 +151,7 @@ export function initPassport(app: any) {
     });
     
     app.get('/api/user', isAuthenticated, (req: any, res: any) => {
-        res.send({ id: req.user._id, username: req.user.username, loggedIn: true });
+        res.send({ username: req.user.username, loggedIn: true });
     });
 }
 
