@@ -147,6 +147,8 @@ class Player {
                         bag: this.bag,
                         coins: this.coins,
                         crates: this.crates,
+                        level: this.level,
+                        exp: this.exp,
                     }
                 });
                 console.log(this.username + ' bag updated successfully');
@@ -166,8 +168,6 @@ class Player {
                     $set: {
                         farm: farm,
                         size: this.farmSize,
-                        level: this.level,
-                        exp: this.exp,
                     }
                 });
                 console.log(this.username + 'farm updated successfully');

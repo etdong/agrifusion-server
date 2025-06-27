@@ -133,7 +133,6 @@ io.sockets.on('connection', (socket: any) => {
         io.emit('UPDATE player/disconnect', { username: socket.username });
     })
 
-
     // GET methods
 
     socket.on('GET player/data', async (callback: (arg0: { status: string; data: any; }) => void) => {
@@ -392,7 +391,7 @@ io.sockets.on('connection', (socket: any) => {
         const crop = GameGrid[oldPos.x][oldPos.y];
 
         if (oldPos.x === newPos.x && oldPos.y === newPos.y) {
-            if (crop.size === CropSize.XLARGE) {
+            if (crop.size === CropSize.XLARGE && player.bagSize > player.bag.length) {
                 console.log('RECV: POST game/crop/harvest', data)
                 harvestCrop(player, crop);
                 GameGrid[crop.pos.x][crop.pos.y] = null; // Remove the crop from the grid
