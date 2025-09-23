@@ -16,17 +16,17 @@ exports.Player = exports.levels = void 0;
 const db_1 = __importDefault(require("../db"));
 const bag_1 = require("./bag");
 exports.levels = {
-    1: { levelUp: 100, farmSize: 3, crops: ['wheat'] },
-    2: { levelUp: 200, farmSize: 4, crops: ['wheat', 'sugarcane'] },
-    3: { levelUp: 400, farmSize: 5, crops: ['wheat', 'carrot', 'sugarcane'] },
-    4: { levelUp: 800, farmSize: 6, crops: ['wheat', 'carrot', 'sugarcane', 'cabbage'] },
-    5: { levelUp: 1500, farmSize: 7, crops: ['wheat', 'carrot', 'sugarcane', 'cabbage', 'potato'] },
-    6: { levelUp: 2500, farmSize: 8, crops: ['wheat', 'carrot', 'sugarcane', 'cabbage', 'potato', 'tomato'] },
-    7: { levelUp: 4000, farmSize: 9, crops: ['wheat', 'carrot', 'sugarcane', 'cabbage', 'potato', 'tomato', 'pumpkin'] },
-    8: { levelUp: 6500, farmSize: 10, crops: ['wheat', 'carrot', 'sugarcane', 'cabbage', 'potato', 'tomato', 'pumpkin', 'corn'] },
-    9: { levelUp: 10000, farmSize: 11, crops: ['wheat', 'carrot', 'sugarcane', 'cabbage', 'potato', 'tomato', 'pumpkin', 'corn', 'bean'] },
-    10: { levelUp: 50000, farmSize: 12, crops: ['wheat', 'carrot', 'sugarcane', 'cabbage', 'potato', 'tomato', 'pumpkin', 'corn', 'bean', 'onion'] },
-    11: { levelUp: 1000000, farmSize: 13, crops: ['wheat', 'carrot', 'sugarcane', 'cabbage', 'potato', 'tomato', 'pumpkin', 'corn', 'bean', 'onion', 'garlic'] },
+    1: { levelUp: 100, farmSize: 3, bagSize: 10, crops: ['wheat'] },
+    2: { levelUp: 200, farmSize: 4, bagSize: 12, crops: ['wheat', 'sugarcane'] },
+    3: { levelUp: 400, farmSize: 5, bagSize: 14, crops: ['wheat', 'carrot', 'sugarcane'] },
+    4: { levelUp: 800, farmSize: 6, bagSize: 16, crops: ['wheat', 'carrot', 'sugarcane', 'cabbage'] },
+    5: { levelUp: 1500, farmSize: 7, bagSize: 18, crops: ['wheat', 'carrot', 'sugarcane', 'cabbage', 'potato'] },
+    6: { levelUp: 2500, farmSize: 8, bagSize: 20, crops: ['wheat', 'carrot', 'sugarcane', 'cabbage', 'potato', 'tomato'] },
+    7: { levelUp: 4000, farmSize: 9, bagSize: 22, crops: ['wheat', 'carrot', 'sugarcane', 'cabbage', 'potato', 'tomato', 'pumpkin'] },
+    8: { levelUp: 6500, farmSize: 10, bagSize: 24, crops: ['wheat', 'carrot', 'sugarcane', 'cabbage', 'potato', 'tomato', 'pumpkin', 'corn'] },
+    9: { levelUp: 10000, farmSize: 11, bagSize: 26, crops: ['wheat', 'carrot', 'sugarcane', 'cabbage', 'potato', 'tomato', 'pumpkin', 'corn', 'bean'] },
+    10: { levelUp: 50000, farmSize: 12, bagSize: 28, crops: ['wheat', 'carrot', 'sugarcane', 'cabbage', 'potato', 'tomato', 'pumpkin', 'corn', 'bean', 'onion'] },
+    11: { levelUp: 1000000, farmSize: 13, bagSize: 30, crops: ['wheat', 'carrot', 'sugarcane', 'cabbage', 'potato', 'tomato', 'pumpkin', 'corn', 'bean', 'onion', 'garlic'] },
 };
 const MAX_FARMSIZE = 13;
 class Player {
@@ -36,6 +36,7 @@ class Player {
         this.pos = { x: -1, y: -1 };
         this.coins = 0;
         this.bag = [];
+        this.bagSize = 10;
         this.crates = 0;
         this.farmSize = 3;
         this.farmOrigin = { x: -1, y: -1 };
@@ -149,6 +150,7 @@ class Player {
                         crates: this.crates,
                         level: this.level,
                         exp: this.exp,
+                        size: this.bagSize,
                     }
                 });
                 console.log(this.username + ' bag updated successfully');
@@ -214,6 +216,9 @@ class Player {
                         bag: [],
                         coins: 0,
                         crates: 10,
+                        level: this.level,
+                        exp: this.exp,
+                        size: this.bagSize,
                     };
                     yield bagColl.insertOne(bagData);
                     console.log('New bag created for player:', this.username);

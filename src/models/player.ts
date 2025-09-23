@@ -148,6 +148,7 @@ export class Player {
                         crates: this.crates,
                         level: this.level,
                         exp: this.exp,
+                        size: this.bagSize,
                     }
                 }
             );
@@ -211,6 +212,9 @@ export class Player {
                     bag: [],
                     coins: 0,
                     crates: 10,
+                    level: this.level,
+                    exp: this.exp,
+                    size: this.bagSize,
                 }
                 await bagColl.insertOne(bagData)
                 console.log('New bag created for player:', this.username);

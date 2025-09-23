@@ -141,6 +141,7 @@ io.sockets.on('connection', (socket) => {
             player.level = bagData.level; // set player level from database
             player.exp = bagData.exp; // set player exp from database
             player.bag = bagData.bag; // set bag from database
+            player.bagSize = bagData.size; // set bag size from database
             player.coins = bagData.coins; // set coins from database
             player.crates = bagData.crates; // set crates from database
             player.crates += Math.min(Math.floor(offlineTime / 180), 50); // add crates based on offline time, 1 crate per 10 minute for a maximum of 50
@@ -360,7 +361,7 @@ io.sockets.on('connection', (socket) => {
         }
         const crop = GameGrid[oldPos.x][oldPos.y];
         if (oldPos.x === newPos.x && oldPos.y === newPos.y) {
-            if (crop.size === crop_1.CropSize.XLARGE) {
+            if (crop.size === crop_1.CropSize.XLARGE && player.bagSize > player.bag.length) {
                 console.log('RECV: POST game/crop/harvest', data);
                 (0, crop_1.harvestCrop)(player, crop);
                 GameGrid[crop.pos.x][crop.pos.y] = null; // Remove the crop from the grid
@@ -395,7 +396,7 @@ io.sockets.on('connection', (socket) => {
         }
         // Merge logic: DFS the game grid to find and merge connected crops of the same type and size
         const mergeGroup = dfs(crop, coll);
-        const newSize = crop.size + 5;
+        const newSize = crop.size + 1;
         switch (true) {
             case mergeGroup.length < 3:
                 callback({ status: 'err', data: 'Cannot move crop onto occupied position without merge' });

@@ -16,10 +16,10 @@ exports.CropType = {
     GARLIC: 'garlic'
 };
 exports.CropSize = {
-    SMALL: 20,
-    MEDIUM: 25,
-    LARGE: 30,
-    XLARGE: 35
+    SMALL: 1,
+    MEDIUM: 2,
+    LARGE: 3,
+    XLARGE: 4
 };
 function harvestCrop(player, crop) {
     player.addExp(5); // Add experience for harvesting
